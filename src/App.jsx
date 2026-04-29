@@ -43,7 +43,7 @@ function guessCategory(name) {
 
 const LIST_ICONS = ["🛒","🏗️","🏠","🎁","🐾","💊","📚","🌿","🧺","⚽"];
 const STORES = [
-  { id:"ml", label:"Mercado Livre", short:"ML", emoji:"🛍️" },
+  { id:"ml", label:"Mercado Livre", short:"Mercado Livre", emoji:"🛍️" },
   { id:"amazon", label:"Amazon", short:"Amazon", emoji:"📦" },
 ];
 
@@ -70,7 +70,6 @@ function getResults(name) {
   };
 }
 
-// Retorna o melhor preço (menor) de cada loja
 function getBestPrices(name) {
   const r = getResults(name);
   return {
@@ -101,7 +100,7 @@ function FeiraLockup({ color = C.graphite, accent = C.sage, size = 1 }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// SHARED INPUT STYLE
+// SHARED STYLES
 // ═════════════════════════════════════════════════════════════════════
 const inp = {
   padding:"12px 14px", background:C.linen, border:`1px solid ${C.linenDim}`,
@@ -110,7 +109,7 @@ const inp = {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// CEP HELPER (fetch via ViaCEP)
+// CEP HELPER
 // ═════════════════════════════════════════════════════════════════════
 async function fetchCep(cepValue) {
   const cleaned = cepValue.replace(/\D/g, "");
@@ -294,20 +293,17 @@ function AuthScreen() {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// MODAL SHELL — versão de cima pra baixo (corrige enquadramento)
+// MODAL SHELL
 // ═════════════════════════════════════════════════════════════════════
 function Modal({ onClose, title, children, footer }) {
   return (
     <div style={{ position:"fixed",inset:0,background:"rgba(15,18,24,0.65)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",backdropFilter:"blur(4px)",padding:"0 12px" }} onClick={onClose}>
       <div style={{ background:C.sand,borderRadius:18,marginTop:"max(24px, env(safe-area-inset-top))",width:"100%",maxWidth:460,maxHeight:"calc(100vh - 48px)",display:"flex",flexDirection:"column",animation:"slideDown 0.25s ease",boxShadow:"0 10px 40px rgba(0,0,0,0.25)",overflow:"hidden" }} onClick={e=>e.stopPropagation()}>
-        {/* Header fixo */}
         <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"18px 20px 14px",borderBottom:`1px solid ${C.linen}`,flexShrink:0 }}>
           <h3 style={{ color:C.graphite,fontSize:19,fontFamily:"'Fraunces',serif",fontWeight:500,letterSpacing:"-0.3px" }}>{title}</h3>
           <button onClick={onClose} style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:20,cursor:"pointer",padding:4 }}>✕</button>
         </div>
-        {/* Body com scroll */}
         <div style={{ padding:"18px 20px",overflowY:"auto",flex:1 }}>{children}</div>
-        {/* Footer fixo */}
         {footer && (
           <div style={{ padding:"14px 20px 20px",borderTop:`1px solid ${C.linen}`,flexShrink:0,background:C.sand }}>
             {footer}
@@ -319,7 +315,7 @@ function Modal({ onClose, title, children, footer }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// PRICE PANEL (modal de detalhes ao clicar no nome da loja)
+// PRICE PANEL
 // ═════════════════════════════════════════════════════════════════════
 function PricePanel({ item, storeId, onClose, enabledStores }) {
   const [tab, setTab] = useState(storeId);
@@ -389,7 +385,7 @@ function CategoryPicker({ current, onChange, onClose }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// MANUAL PRICE MODAL (registrar compra física)
+// MANUAL PRICE MODAL
 // ═════════════════════════════════════════════════════════════════════
 function ManualPriceModal({ item, onConfirm, onClose }) {
   const [price, setPrice] = useState("");
@@ -435,9 +431,6 @@ function ManualPriceModal({ item, onConfirm, onClose }) {
         type="tel"
         autoFocus
       />
-      <p style={{ color:C.stoneSoft,fontSize:11,marginTop:10,fontStyle:"italic" }}>
-        💡 No futuro, será possível importar valores direto da nota fiscal eletrônica.
-      </p>
       {error && (
         <div style={{ background:`${C.danger}15`,border:`1px solid ${C.danger}55`,borderRadius:9,padding:"10px 12px",marginTop:12 }}>
           <p style={{ color:C.danger,fontSize:13 }}>{error}</p>
@@ -448,10 +441,10 @@ function ManualPriceModal({ item, onConfirm, onClose }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// ITEM ROW (com preços inline + checkboxes de loja + botão loja física)
+// ITEM ROW
 // ═════════════════════════════════════════════════════════════════════
 function ItemRow({ item, enabledStores, onToggle, onDelete, onCategoryChange, onMarkPurchased }) {
-  const [showPrice, setShowPrice] = useState(null); // qual loja foi clicada
+  const [showPrice, setShowPrice] = useState(null);
   const [showCatPicker, setShowCatPicker] = useState(false);
   const [showManual, setShowManual] = useState(false);
 
@@ -478,13 +471,12 @@ function ItemRow({ item, enabledStores, onToggle, onDelete, onCategoryChange, on
 
         {!item.done && (
           <div style={{ display:"flex",gap:6,padding:"0 13px 13px",alignItems:"stretch" }}>
-            {/* Cards de loja com preço inline + checkbox */}
             {activeStores.map(s => (
               <div key={s.id} style={{ flex:1,background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:9,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6 }}>
                 <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:6 }}>
                   <button
                     onClick={()=>setShowPrice(s.id)}
-                    style={{ background:"none",border:"none",color:C.ink,fontSize:11,fontWeight:600,cursor:"pointer",padding:0,textAlign:"left",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:4 }}
+                    style={{ background:"none",border:"none",color:C.ink,fontSize:11,fontWeight:600,cursor:"pointer",padding:0,textAlign:"left",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:4,minWidth:0,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}
                   >
                     {s.emoji} {s.short}
                   </button>
@@ -492,7 +484,7 @@ function ItemRow({ item, enabledStores, onToggle, onDelete, onCategoryChange, on
                     type="checkbox"
                     checked={isCheckedFor(s.id)}
                     onChange={()=>onMarkPurchased(s.id, prices[s.id])}
-                    style={{ width:16,height:16,accentColor:C.sage,cursor:"pointer",margin:0 }}
+                    style={{ width:16,height:16,accentColor:C.sage,cursor:"pointer",margin:0,flexShrink:0 }}
                     title="Marcar como comprado aqui"
                   />
                 </div>
@@ -508,7 +500,6 @@ function ItemRow({ item, enabledStores, onToggle, onDelete, onCategoryChange, on
               </div>
             ))}
 
-            {/* Botão loja física */}
             <button
               onClick={()=>setShowManual(true)}
               title="Comprei na loja física"
@@ -538,7 +529,7 @@ function ItemRow({ item, enabledStores, onToggle, onDelete, onCategoryChange, on
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// ADD ITEM MODAL (com header/footer fixos)
+// ADD ITEM MODAL
 // ═════════════════════════════════════════════════════════════════════
 function AddItemModal({ onAdd, onClose }) {
   const [name, setName] = useState("");
@@ -585,7 +576,7 @@ function AddItemModal({ onAdd, onClose }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// ADD LIST MODAL (com header/footer fixos)
+// ADD LIST MODAL
 // ═════════════════════════════════════════════════════════════════════
 function AddListModal({ onAdd, onClose }) {
   const [name, setName] = useState("");
@@ -660,29 +651,62 @@ function ScreenLists({ lists, listCounts, onOpen, onAdd, onDelete, profile }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// SCREEN: LIST DETAIL
+// SCREEN: LIST DETAIL (com ordenação + marcar/desmarcar todos + filtros corretos)
 // ═════════════════════════════════════════════════════════════════════
-function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onToggleItem, onDeleteItem, onChangeCategory, onMarkPurchased }) {
+function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onToggleItem, onDeleteItem, onChangeCategory, onMarkPurchased, onToggleAll }) {
   const [showAdd, setShowAdd] = useState(false);
   const [filter, setFilter] = useState("todos");
+  const [sortBy, setSortBy] = useState("ordem"); // 'ordem', 'categoria', 'alfabetica'
 
   const done = items.filter(i=>i.done).length, total = items.length;
   const progress = total ? Math.round((done/total)*100) : 0;
   const activeStores = STORES.filter(s=>enabledStores.includes(s.id));
 
+  // Filtros corretos: lojas mostram itens COMPRADOS naquela loja
   const filterTabs = [
     { v:"todos", l:"Todos" },
     { v:"pendentes", l:"Pendentes" },
     ...activeStores.map(s=>({ v:s.id, l:s.short })),
+    { v:"store", l:"Loja física" },
     { v:"comprados", l:"Comprados" },
   ];
 
-  const filtered = items.filter(i=>{
-    if (filter==="todos") return true;
-    if (filter==="pendentes") return !i.done;
-    if (filter==="comprados") return i.done;
-    return !i.done;
-  });
+  const filteredAndSorted = (() => {
+    let result = items.filter(i=>{
+      if (filter==="todos") return true;
+      if (filter==="pendentes") return !i.done;
+      if (filter==="comprados") return i.done;
+      // Filtros de loja: mostrar itens comprados naquela loja
+      return i.done && i.bought_at === filter;
+    });
+
+    // Ordenação
+    const sortFn = {
+      ordem: (a, b) => new Date(a.created_at) - new Date(b.created_at),
+      categoria: (a, b) => {
+        const ca = CATEGORIES.findIndex(c => c.id === a.category);
+        const cb = CATEGORIES.findIndex(c => c.id === b.category);
+        if (ca !== cb) return ca - cb;
+        return a.name.localeCompare(b.name, "pt-BR");
+      },
+      alfabetica: (a, b) => a.name.localeCompare(b.name, "pt-BR"),
+    }[sortBy];
+
+    result = [...result].sort(sortFn);
+
+    // No filtro "Todos", empurra os comprados para o final
+    if (filter === "todos") {
+      result.sort((a, b) => {
+        if (a.done === b.done) return 0;
+        return a.done ? 1 : -1;
+      });
+    }
+
+    return result;
+  })();
+
+  const allDone = total > 0 && done === total;
+  const sortLabels = { ordem: "Ordem de criação", categoria: "Categoria", alfabetica: "Ordem alfabética" };
 
   return (
     <div style={{ paddingBottom:100 }}>
@@ -698,20 +722,52 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
         {total>0 && <div style={{ height:4,background:C.linenDim,borderRadius:4 }}><div style={{ height:"100%",width:`${progress}%`,borderRadius:4,background:C.sage,transition:"width 0.5s" }} /></div>}
       </div>
 
-      <div style={{ display:"flex",gap:6,padding:"12px 14px 4px",overflowX:"auto" }}>
+      {/* Toolbar: ordenação + marcar/desmarcar todos */}
+      {total > 0 && (
+        <div style={{ display:"flex",gap:8,padding:"12px 14px 4px",alignItems:"center" }}>
+          <select
+            value={sortBy}
+            onChange={e=>setSortBy(e.target.value)}
+            style={{
+              flex:1, padding:"7px 10px", background:C.linen, border:`1px solid ${C.linenDim}`,
+              borderRadius:9, color:C.ink, fontSize:12, fontFamily:"'DM Sans',sans-serif",
+              outline:"none", cursor:"pointer"
+            }}
+          >
+            <option value="ordem">↕ Ordem de criação</option>
+            <option value="categoria">📂 Por categoria</option>
+            <option value="alfabetica">🔤 Ordem alfabética</option>
+          </select>
+          <button
+            onClick={()=>onToggleAll(!allDone)}
+            style={{
+              padding:"7px 13px", borderRadius:9, flexShrink:0,
+              background: allDone ? C.linen : C.graphite,
+              border:`1px solid ${allDone ? C.linenDim : C.graphite}`,
+              color: allDone ? C.ink : C.sand,
+              fontSize:12, fontWeight:500, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"
+            }}
+          >
+            {allDone ? "Desmarcar todos" : "Marcar todos"}
+          </button>
+        </div>
+      )}
+
+      {/* Filtros */}
+      <div style={{ display:"flex",gap:6,padding:"8px 14px 4px",overflowX:"auto" }}>
         {filterTabs.map(({v,l})=>(
           <button key={v} onClick={()=>setFilter(v)} style={{ padding:"6px 13px",borderRadius:18,flexShrink:0,background:filter===v?C.graphite:"transparent",border:`1px solid ${filter===v?C.graphite:C.linenDim}`,color:filter===v?C.sand:C.stone,fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>{l}</button>
         ))}
       </div>
 
       <div style={{ padding:"6px 14px" }}>
-        {filtered.length===0 && (
+        {filteredAndSorted.length===0 && (
           <div style={{ textAlign:"center",padding:"50px 20px",color:C.stoneSoft }}>
             <div style={{ fontSize:34,marginBottom:8,opacity:0.5 }}>🛒</div>
             <p style={{ color:C.stone,fontSize:14 }}>Nenhum item aqui</p>
           </div>
         )}
-        {filtered.map(item=>(
+        {filteredAndSorted.map(item=>(
           <ItemRow key={item.id} item={item} enabledStores={enabledStores}
             onToggle={()=>onToggleItem(item)}
             onDelete={()=>onDeleteItem(item.id)}
@@ -729,11 +785,13 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// SCREEN: HISTORY (com permitir apagar)
+// SCREEN: HISTORY (com modo de seleção múltipla + ordenação)
 // ═════════════════════════════════════════════════════════════════════
-function ScreenHistory({ history, onDeleteRecord }) {
+function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
   const [storeFilter, setStoreFilter] = useState("all");
-  const filtered = storeFilter==="all" ? history : history.filter(i=>i.store===storeFilter);
+  const [sortBy, setSortBy] = useState("data");
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"}) : "—";
 
   const labelFor = (storeId) => {
@@ -745,51 +803,184 @@ function ScreenHistory({ history, onDeleteRecord }) {
     return STORES.find(s=>s.id===storeId)?.emoji || "🛒";
   };
 
+  const filteredAndSorted = (() => {
+    let result = storeFilter==="all" ? history : history.filter(i=>i.store===storeFilter);
+    const sortFn = {
+      data: (a, b) => new Date(b.purchased_at) - new Date(a.purchased_at),
+      alfabetica: (a, b) => (a.item_name||"").localeCompare(b.item_name||"", "pt-BR"),
+      categoria: (a, b) => {
+        const ca = CATEGORIES.findIndex(c => c.id === a.category);
+        const cb = CATEGORIES.findIndex(c => c.id === b.category);
+        if (ca !== cb) return ca - cb;
+        return new Date(b.purchased_at) - new Date(a.purchased_at);
+      },
+    }[sortBy];
+    return [...result].sort(sortFn);
+  })();
+
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Marca/desmarca todos os itens VISÍVEIS (respeitando filtros)
+  const visibleIds = filteredAndSorted.map(i => i.id);
+  const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+
+  const toggleAll = () => {
+    if (allSelected) {
+      // Desmarcar todos os visíveis
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.delete(id));
+        return next;
+      });
+    } else {
+      // Marcar todos os visíveis
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.add(id));
+        return next;
+      });
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Apagar ${selectedIds.size} ${selectedIds.size === 1 ? "registro" : "registros"} do histórico?`)) return;
+    await onDeleteMany([...selectedIds]);
+    setSelectedIds(new Set());
+  };
+
+  const hasSelection = selectedIds.size > 0;
+
   return (
-    <div style={{ paddingBottom:84 }}>
+    <div style={{ paddingBottom: hasSelection ? 140 : 84 }}>
       <div style={{ padding:"44px 18px 18px" }}>
         <p style={{ color:C.stone,fontSize:10,textTransform:"uppercase",letterSpacing:1.8,fontWeight:500,marginBottom:6 }}>Histórico</p>
         <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:26,fontWeight:500,color:C.graphite,letterSpacing:"-0.5px" }}>Compras realizadas</h2>
       </div>
 
-      <div style={{ display:"flex",gap:6,padding:"0 14px 14px",overflowX:"auto" }}>
+      {/* Toolbar: ordenação + marcar/desmarcar todos (mesmo padrão da Lista) */}
+      {history.length > 0 && (
+        <div style={{ display:"flex",gap:8,padding:"0 14px 10px",alignItems:"center" }}>
+          <select
+            value={sortBy}
+            onChange={e=>setSortBy(e.target.value)}
+            style={{
+              flex:1, padding:"7px 10px", background:C.linen, border:`1px solid ${C.linenDim}`,
+              borderRadius:9, color:C.ink, fontSize:12, fontFamily:"'DM Sans',sans-serif",
+              outline:"none", cursor:"pointer"
+            }}
+          >
+            <option value="data">📅 Data de compra</option>
+            <option value="alfabetica">🔤 Ordem alfabética</option>
+            <option value="categoria">📂 Por categoria</option>
+          </select>
+          <button
+            onClick={toggleAll}
+            style={{
+              padding:"7px 13px", borderRadius:9, flexShrink:0,
+              background: allSelected ? C.linen : C.graphite,
+              border:`1px solid ${allSelected ? C.linenDim : C.graphite}`,
+              color: allSelected ? C.ink : C.sand,
+              fontSize:12, fontWeight:500, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"
+            }}
+          >
+            {allSelected ? "Desmarcar todos" : "Selecionar todos"}
+          </button>
+        </div>
+      )}
+
+      <div style={{ display:"flex",gap:6,padding:"0 14px 10px",overflowX:"auto" }}>
         {[{id:"all",l:"Todas"},{id:"ml",l:"🛍️ Mercado Livre"},{id:"amazon",l:"📦 Amazon"},{id:"store",l:"🏪 Loja física"}].map(({id,l})=>(
           <button key={id} onClick={()=>setStoreFilter(id)} style={{ padding:"7px 13px",borderRadius:18,flexShrink:0,background:storeFilter===id?C.graphite:"transparent",border:`1px solid ${storeFilter===id?C.graphite:C.linenDim}`,color:storeFilter===id?C.sand:C.stone,fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>{l}</button>
         ))}
       </div>
 
       <div style={{ padding:"0 14px" }}>
-        {filtered.length===0 ? (
+        {filteredAndSorted.length===0 ? (
           <div style={{ textAlign:"center",padding:"50px 20px",color:C.stoneSoft }}>
             <div style={{ fontSize:38,marginBottom:10,opacity:0.5 }}>📋</div>
             <p style={{ color:C.stone,fontSize:14 }}>Nenhuma compra registrada</p>
           </div>
         ) : (
-          filtered.map((item)=>(
-            <div key={item.id} style={{ background:"#FAF8F4",borderRadius:13,padding:"13px 14px",marginBottom:8,border:`1px solid ${C.linen}`,display:"flex",alignItems:"center",gap:12 }}>
-              <div style={{ width:38,height:38,borderRadius:10,background:C.linen,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>{emojiFor(item.store)}</div>
-              <div style={{ flex:1,minWidth:0 }}>
-                <p style={{ fontWeight:500,fontSize:14,color:C.graphite,marginBottom:2,fontFamily:"'DM Sans',sans-serif" }}>{item.item_name}</p>
-                <p style={{ color:C.stone,fontSize:11 }}>
-                  {item.qty} {item.unit} · {labelFor(item.store)} · {fmtDate(item.purchased_at)}
-                  {item.price ? ` · R$ ${Number(item.price).toFixed(2).replace(".", ",")}` : ""}
-                </p>
+          filteredAndSorted.map((item)=>{
+            const isSelected = selectedIds.has(item.id);
+            return (
+              <div
+                key={item.id}
+                style={{
+                  background: isSelected ? `${C.sage}22` : "#FAF8F4",
+                  borderRadius:13, padding:"13px 14px", marginBottom:8,
+                  border:`1px solid ${isSelected ? C.sage : C.linen}`,
+                  display:"flex", alignItems:"center", gap:12,
+                  transition:"background 0.15s"
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={()=>toggleSelect(item.id)}
+                  style={{ width:18,height:18,accentColor:C.sage,cursor:"pointer",margin:0,flexShrink:0 }}
+                />
+                <div style={{ width:38,height:38,borderRadius:10,background:C.linen,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>{emojiFor(item.store)}</div>
+                <div style={{ flex:1,minWidth:0 }}>
+                  <p style={{ fontWeight:500,fontSize:14,color:C.graphite,marginBottom:2,fontFamily:"'DM Sans',sans-serif" }}>{item.item_name}</p>
+                  <p style={{ color:C.stone,fontSize:11 }}>
+                    {item.qty} {item.unit} · {labelFor(item.store)} · {fmtDate(item.purchased_at)}
+                    {item.price ? ` · R$ ${Number(item.price).toFixed(2).replace(".", ",")}` : ""}
+                  </p>
+                </div>
+                <button
+                  onClick={()=>{ if (window.confirm("Apagar este registro do histórico?")) onDeleteRecord(item.id); }}
+                  style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:6,flexShrink:0 }}
+                  title="Apagar registro"
+                >✕</button>
               </div>
-              <button
-                onClick={()=>{ if (window.confirm("Apagar este registro do histórico?")) onDeleteRecord(item.id); }}
-                style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:6,flexShrink:0 }}
-                title="Apagar registro"
-              >✕</button>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
+
+      {/* Barra inferior de ações quando há seleção */}
+      {hasSelection && (
+        <div style={{
+          position:"fixed", bottom:56, left:"50%", transform:"translateX(-50%)",
+          width:"100%", maxWidth:480, padding:"12px 16px",
+          background:C.sand, borderTop:`1px solid ${C.linen}`,
+          display:"flex", alignItems:"center", justifyContent:"space-between", gap:12,
+          zIndex:150,
+          boxShadow:"0 -4px 20px rgba(0,0,0,0.06)"
+        }}>
+          <p style={{ color:C.ink, fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
+            <strong>{selectedIds.size}</strong> {selectedIds.size === 1 ? "selecionado" : "selecionados"}
+          </p>
+          <button
+            onClick={handleDeleteSelected}
+            disabled={selectedIds.size === 0}
+            style={{
+              padding:"10px 18px", borderRadius:11,
+              background: selectedIds.size === 0 ? C.linen : C.danger,
+              border:"none", color: selectedIds.size === 0 ? C.stoneSoft : "#fff",
+              fontSize:13, fontWeight:600, cursor: selectedIds.size === 0 ? "not-allowed" : "pointer",
+              fontFamily:"'DM Sans',sans-serif"
+            }}
+          >
+            Apagar selecionados
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// SCREEN: SETTINGS (com CEP funcional + endereço completo)
+// SCREEN: SETTINGS
 // ═════════════════════════════════════════════════════════════════════
 function ScreenSettings({ profile, onSave, onLogout }) {
   const [name, setName] = useState(profile?.name||"");
@@ -922,7 +1113,7 @@ function ScreenSettings({ profile, onSave, onLogout }) {
 
         <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"14px",border:`1px solid ${C.linen}`,borderRadius:13 }}>
           <FeiraLogo size={20} color={C.stoneSoft} accent={C.stoneSoft} />
-          <p style={{ color:C.stoneSoft,fontSize:11,fontFamily:"'Fraunces',serif",fontStyle:"italic" }}>feira · v1.1</p>
+          <p style={{ color:C.stoneSoft,fontSize:11,fontFamily:"'Fraunces',serif",fontStyle:"italic" }}>feira · v1.2</p>
         </div>
       </div>
     </div>
@@ -952,10 +1143,10 @@ function BottomNav({ tab, setTab }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// UNDO TOAST (3 minutos para desfazer)
+// UNDO TOAST (1 minuto agora)
 // ═════════════════════════════════════════════════════════════════════
 function UndoToast({ message, onUndo, onTimeout }) {
-  const [timeLeft, setTimeLeft] = useState(180);
+  const [timeLeft, setTimeLeft] = useState(60);
 
   useEffect(() => {
     if (timeLeft <= 0) { onTimeout(); return; }
@@ -989,7 +1180,7 @@ export default function App() {
   const [activeList, setActiveList] = useState(null);
   const [tab, setTab] = useState("lists");
   const [savedMsg, setSavedMsg] = useState(false);
-  const [pendingUndo, setPendingUndo] = useState(null); // { item, prevState, message }
+  const [pendingUndo, setPendingUndo] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session }}) => {
@@ -1017,7 +1208,7 @@ export default function App() {
   };
 
   const loadHistory = async () => {
-    const { data } = await supabase.from("purchase_history").select("*").order("purchased_at", { ascending: false }).limit(100);
+    const { data } = await supabase.from("purchase_history").select("*").order("purchased_at", { ascending: false }).limit(200);
     if (data) setHistory(data);
   };
 
@@ -1082,15 +1273,12 @@ export default function App() {
     if (data) setItems(prev => prev.map(i => i.id===id ? data : i));
   };
 
-  // Marcar como comprado: cria registro imediato + janela de desfazer (3 min)
   const markPurchased = async (item, storeId, price) => {
-    // Se já está marcado nesta loja, desmarca
     if (item.done && item.bought_at === storeId) {
       const { data } = await supabase.from("items").update({
         done: false, bought_at: null, bought_date: null, bought_price: null
       }).eq("id", item.id).select().single();
       if (data) setItems(prev => prev.map(i => i.id===item.id ? data : i));
-      // Apaga registro de histórico recente desse item
       setTimeout(loadHistory, 300);
       return;
     }
@@ -1102,10 +1290,8 @@ export default function App() {
 
     if (data) {
       setItems(prev => prev.map(i => i.id===item.id ? data : i));
-      // Histórico é registrado pelo trigger SQL
       setTimeout(loadHistory, 500);
 
-      // Janela de desfazer
       const storeName = storeId === "store" ? "Loja física" : STORES.find(s=>s.id===storeId)?.label;
       setPendingUndo({
         itemId: item.id,
@@ -1115,13 +1301,29 @@ export default function App() {
     }
   };
 
+  // Marcar/desmarcar todos
+  const toggleAllItems = async (markAsDone) => {
+    if (!activeList) return;
+    const updates = { done: markAsDone };
+    if (!markAsDone) {
+      updates.bought_at = null;
+      updates.bought_date = null;
+      updates.bought_price = null;
+    }
+    const { data } = await supabase.from("items")
+      .update(updates)
+      .eq("list_id", activeList.id)
+      .select();
+    if (data) setItems(data);
+    setTimeout(loadHistory, 300);
+  };
+
   const handleUndo = async () => {
     if (!pendingUndo) return;
     const { itemId, prevState } = pendingUndo;
     const { data } = await supabase.from("items").update(prevState).eq("id", itemId).select().single();
     if (data) {
       setItems(prev => prev.map(i => i.id===itemId ? data : i));
-      // Apaga registro de histórico mais recente desse item
       const recent = history.find(h => h.item_name === data.name);
       if (recent) await supabase.from("purchase_history").delete().eq("id", recent.id);
       setTimeout(loadHistory, 300);
@@ -1132,6 +1334,11 @@ export default function App() {
   const deleteHistoryRecord = async (recordId) => {
     await supabase.from("purchase_history").delete().eq("id", recordId);
     setHistory(prev => prev.filter(h => h.id !== recordId));
+  };
+
+  const deleteHistoryMany = async (ids) => {
+    await supabase.from("purchase_history").delete().in("id", ids);
+    setHistory(prev => prev.filter(h => !ids.includes(h.id)));
   };
 
   const saveProfile = async (updates) => {
@@ -1191,11 +1398,12 @@ export default function App() {
           enabledStores={enabledStores}
           onAddItem={addItem} onToggleItem={toggleItem} onDeleteItem={deleteItem}
           onChangeCategory={changeCategory} onMarkPurchased={markPurchased}
+          onToggleAll={toggleAllItems}
         />
       ) : (
         <>
           {tab==="lists" && <ScreenLists lists={lists} listCounts={listCounts} onOpen={setActiveList} onAdd={addList} onDelete={deleteList} profile={profile} />}
-          {tab==="history" && <ScreenHistory history={history} onDeleteRecord={deleteHistoryRecord} />}
+          {tab==="history" && <ScreenHistory history={history} onDeleteRecord={deleteHistoryRecord} onDeleteMany={deleteHistoryMany} />}
           {tab==="settings" && <ScreenSettings profile={profile} onSave={saveProfile} onLogout={handleLogout} />}
         </>
       )}
