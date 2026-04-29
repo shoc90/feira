@@ -70,14 +70,6 @@ function getResults(name) {
   };
 }
 
-function getBestPrices(name) {
-  const r = getResults(name);
-  return {
-    ml: Math.min(...r.ml.map(p => p.price)),
-    amazon: Math.min(...r.amazon.map(p => p.price)),
-  };
-}
-
 // ═════════════════════════════════════════════════════════════════════
 // LOGO
 // ═════════════════════════════════════════════════════════════════════
@@ -315,59 +307,6 @@ function Modal({ onClose, title, children, footer }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// PRICE PANEL
-// ═════════════════════════════════════════════════════════════════════
-function PricePanel({ item, storeId, onClose, enabledStores }) {
-  const [tab, setTab] = useState(storeId);
-  const [loading, setLoading] = useState(true);
-  const [results, setResults] = useState(null);
-
-  useEffect(() => {
-    setLoading(true);
-    const t = setTimeout(() => { setResults(getResults(item.name)); setLoading(false); }, 600);
-    return () => clearTimeout(t);
-  }, [item.name]);
-
-  const activeStores = STORES.filter(s => enabledStores.includes(s.id));
-
-  return (
-    <Modal onClose={onClose} title={`${item.name}`}>
-      <p style={{ color:C.stone,fontSize:11,textTransform:"uppercase",letterSpacing:1.5,marginTop:-6,marginBottom:14 }}>Comparar preços</p>
-
-      <div style={{ display:"flex",gap:7,marginBottom:14 }}>
-        {activeStores.map(s => (
-          <button key={s.id} onClick={() => setTab(s.id)} style={{ flex:1,padding:"10px",borderRadius:10,background:tab===s.id?C.graphite:C.linen,border:`1px solid ${tab===s.id?C.graphite:C.linenDim}`,color:tab===s.id?C.sand:C.stone,fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>{s.emoji} {s.label}</button>
-        ))}
-      </div>
-
-      {loading ? (
-        <div style={{ textAlign:"center",padding:"32px 0",color:C.stone }}>
-          <div style={{ width:32,height:32,margin:"0 auto 10px",border:`2px solid ${C.linenDim}`,borderTop:`2px solid ${C.sage}`,borderRadius:"50%",animation:"spin 0.8s linear infinite" }} />
-          <p style={{ fontSize:13 }}>Buscando preços...</p>
-        </div>
-      ) : results && results[tab].map(p => (
-        <a key={p.id} href={p.url} target="_blank" rel="noreferrer" style={{ display:"block",textDecoration:"none",background:C.linen,borderRadius:14,border:`1px solid ${C.linenDim}`,padding:"14px",marginBottom:9 }}>
-          <div style={{ display:"flex",justifyContent:"space-between",marginBottom:5 }}>
-            <span style={{ fontSize:10,color:C.stone,fontWeight:500,textTransform:"uppercase",letterSpacing:0.8 }}>{STORES.find(s=>s.id===tab)?.emoji} {STORES.find(s=>s.id===tab)?.label}</span>
-            <span style={{ fontSize:11,color:C.stoneSoft }}>★ {p.rating}</span>
-          </div>
-          <p style={{ color:C.ink,fontSize:13,marginBottom:10,lineHeight:1.4 }}>{p.title}</p>
-          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:12 }}>
-            <span style={{ color:C.graphite,fontWeight:500,fontSize:24,fontFamily:"'Fraunces',serif",letterSpacing:"-0.5px" }}>R$ {p.price.toFixed(2)}</span>
-            <div style={{ textAlign:"right" }}>
-              <p style={{ color:p.freeShipping?C.sageDeep:C.stone,fontSize:11,fontWeight:500 }}>{p.freeShipping?"Frete grátis":"+ frete"}</p>
-              <p style={{ color:C.stoneSoft,fontSize:11 }}>{p.delivery}</p>
-            </div>
-          </div>
-          <div style={{ padding:"10px",borderRadius:9,textAlign:"center",fontWeight:500,fontSize:13,background:C.sage,color:C.graphite,fontFamily:"'DM Sans',sans-serif" }}>Adicionar ao Carrinho →</div>
-        </a>
-      ))}
-      <p style={{ color:C.stoneSoft,fontSize:10,textAlign:"center",marginTop:6,fontStyle:"italic" }}>preços simulados · API em breve</p>
-    </Modal>
-  );
-}
-
-// ═════════════════════════════════════════════════════════════════════
 // CATEGORY PICKER
 // ═════════════════════════════════════════════════════════════════════
 function CategoryPicker({ current, onChange, onClose }) {
@@ -385,11 +324,24 @@ function CategoryPicker({ current, onChange, onClose }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// MANUAL PRICE MODAL
+// ITEM DETAIL MODAL (novo - tela 3 reformulada)
 // ═════════════════════════════════════════════════════════════════════
-function ManualPriceModal({ item, onConfirm, onClose }) {
-  const [price, setPrice] = useState("");
-  const [error, setError] = useState(null);
+function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
+  // Tab ativa: primeira loja habilitada por padrão
+  const activeStores = STORES.filter(s => enabledStores.includes(s.id));
+  const [tab, setTab] = useState(activeStores[0]?.id || "ml");
+  const [loading, setLoading] = useState(true);
+  const [results, setResults] = useState(null);
+
+  // Estado da Loja física
+  const [storePrice, setStorePrice] = useState("");
+  const [storeError, setStoreError] = useState(null);
+
+  useEffect(() => {
+    setLoading(true);
+    const t = setTimeout(() => { setResults(getResults(item.name)); setLoading(false); }, 600);
+    return () => clearTimeout(t);
+  }, [item.name]);
 
   const formatBRL = (v) => {
     const digits = v.replace(/\D/g, "");
@@ -398,180 +350,266 @@ function ManualPriceModal({ item, onConfirm, onClose }) {
     return num.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const handle = () => {
-    const cleaned = price.replace(/\./g, "").replace(",", ".");
-    const num = parseFloat(cleaned);
-    if (isNaN(num) || num <= 0) { setError("Digite um valor válido"); return; }
-    onConfirm(num);
+  // Marca como comprado em ML/Amazon e abre o link em nova aba
+  const handleMarkAndOpen = (productUrl, price) => {
+    onMarkPurchased(tab, price, productUrl);
     onClose();
   };
+
+  // Marca como comprado na loja física (com valor manual)
+  const handleStoreSubmit = () => {
+    const cleaned = storePrice.replace(/\./g, "").replace(",", ".");
+    const num = parseFloat(cleaned);
+    if (isNaN(num) || num <= 0) { setStoreError("Digite um valor válido"); return; }
+    onMarkPurchased("store", num);
+    onClose();
+  };
+
+  // Tabs incluindo Loja física
+  const tabs = [
+    ...activeStores.map(s => ({ id: s.id, label: s.short, emoji: s.emoji })),
+    { id: "store", label: "Loja", emoji: "🏪" }
+  ];
 
   return (
     <Modal
       onClose={onClose}
-      title={`Comprei: ${item.name}`}
+      title={item.name}
       footer={
-        <div style={{ display:"flex",gap:8 }}>
-          <button onClick={onClose} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>Cancelar</button>
-          <button onClick={handle} style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:"pointer",fontSize:15,fontFamily:"'DM Sans',sans-serif" }}>Registrar compra</button>
-        </div>
+        tab !== "store" ? (
+          <button onClick={onClose} style={{ width:"100%",padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>
+            Voltar sem escolher
+          </button>
+        ) : (
+          <div style={{ display:"flex",gap:8 }}>
+            <button onClick={onClose} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>Voltar</button>
+            <button onClick={handleStoreSubmit} style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:"pointer",fontSize:15,fontFamily:"'DM Sans',sans-serif" }}>Marcar como comprado</button>
+          </div>
+        )
       }
     >
-      <p style={{ color:C.inkSoft,fontSize:13,marginBottom:14,lineHeight:1.5 }}>
-        Digite quanto você pagou neste item na loja física. O valor irá para o seu histórico.
-      </p>
-      <p style={{ color:C.stone,fontSize:11,marginBottom:6,textTransform:"uppercase",letterSpacing:1 }}>Valor pago (R$)</p>
-      <input
-        style={{ ...inp, fontSize:20, fontWeight:500, fontFamily:"'Fraunces',serif" }}
-        placeholder="0,00"
-        value={price}
-        onChange={e => setPrice(formatBRL(e.target.value))}
-        inputMode="numeric"
-        pattern="[0-9]*"
-        type="tel"
-        autoFocus
-      />
-      {error && (
-        <div style={{ background:`${C.danger}15`,border:`1px solid ${C.danger}55`,borderRadius:9,padding:"10px 12px",marginTop:12 }}>
-          <p style={{ color:C.danger,fontSize:13 }}>{error}</p>
+      {/* Tabs com 3 botões: ML, Amazon, Loja */}
+      <div style={{ display:"flex",gap:6,marginBottom:18 }}>
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            onClick={()=>setTab(t.id)}
+            style={{
+              flex:1, padding:"11px 6px", borderRadius:10,
+              background: tab===t.id ? C.graphite : C.linen,
+              border:`1px solid ${tab===t.id ? C.graphite : C.linenDim}`,
+              color: tab===t.id ? C.sand : C.ink,
+              fontSize:12, fontWeight:500, cursor:"pointer",
+              fontFamily:"'DM Sans',sans-serif",
+              display:"flex", flexDirection:"column", alignItems:"center", gap:3
+            }}
+          >
+            <span style={{ fontSize:18 }}>{t.emoji}</span>
+            <span style={{ fontSize:11 }}>{t.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Aba Loja física */}
+      {tab === "store" && (
+        <div>
+          <p style={{ color:C.inkSoft,fontSize:13,marginBottom:14,lineHeight:1.5 }}>
+            Digite quanto você pagou por este item na loja física.
+          </p>
+          <p style={{ color:C.stone,fontSize:11,marginBottom:6,textTransform:"uppercase",letterSpacing:1 }}>Valor pago (R$)</p>
+          <input
+            style={{ ...inp, fontSize:22, fontWeight:500, fontFamily:"'Fraunces',serif" }}
+            placeholder="0,00"
+            value={storePrice}
+            onChange={e => setStorePrice(formatBRL(e.target.value))}
+            inputMode="numeric"
+            pattern="[0-9]*"
+            type="tel"
+            autoFocus
+          />
+          {storeError && (
+            <div style={{ background:`${C.danger}15`,border:`1px solid ${C.danger}55`,borderRadius:9,padding:"10px 12px",marginTop:12 }}>
+              <p style={{ color:C.danger,fontSize:13 }}>{storeError}</p>
+            </div>
+          )}
         </div>
+      )}
+
+      {/* Abas ML e Amazon */}
+      {tab !== "store" && (
+        <>
+          {loading ? (
+            <div style={{ textAlign:"center",padding:"32px 0",color:C.stone }}>
+              <div style={{ width:32,height:32,margin:"0 auto 10px",border:`2px solid ${C.linenDim}`,borderTop:`2px solid ${C.sage}`,borderRadius:"50%",animation:"spin 0.8s linear infinite" }} />
+              <p style={{ fontSize:13 }}>Buscando preços...</p>
+            </div>
+          ) : results && results[tab].map(p => (
+            <div key={p.id} style={{ background:C.linen,borderRadius:14,border:`1px solid ${C.linenDim}`,padding:"14px",marginBottom:9 }}>
+              <div style={{ display:"flex",justifyContent:"space-between",marginBottom:5 }}>
+                <span style={{ fontSize:10,color:C.stone,fontWeight:500,textTransform:"uppercase",letterSpacing:0.8 }}>{STORES.find(s=>s.id===tab)?.emoji} {STORES.find(s=>s.id===tab)?.label}</span>
+                <span style={{ fontSize:11,color:C.stoneSoft }}>★ {p.rating}</span>
+              </div>
+              <p style={{ color:C.ink,fontSize:13,marginBottom:10,lineHeight:1.4 }}>{p.title}</p>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:12 }}>
+                <span style={{ color:C.graphite,fontWeight:500,fontSize:24,fontFamily:"'Fraunces',serif",letterSpacing:"-0.5px" }}>R$ {p.price.toFixed(2).replace(".",",")}</span>
+                <div style={{ textAlign:"right" }}>
+                  <p style={{ color:p.freeShipping?C.sageDeep:C.stone,fontSize:11,fontWeight:500 }}>{p.freeShipping?"Frete grátis":"+ frete"}</p>
+                  <p style={{ color:C.stoneSoft,fontSize:11 }}>{p.delivery}</p>
+                </div>
+              </div>
+              <button
+                onClick={()=>handleMarkAndOpen(p.url, p.price)}
+                style={{
+                  width:"100%", padding:"11px",borderRadius:9,fontWeight:600,fontSize:13,
+                  background:C.sage,color:C.graphite,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"
+                }}
+              >
+                Comprar e marcar como comprado →
+              </button>
+            </div>
+          ))}
+          <p style={{ color:C.stoneSoft,fontSize:10,textAlign:"center",marginTop:6,fontStyle:"italic" }}>preços simulados · API em breve</p>
+        </>
       )}
     </Modal>
   );
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// ITEM ROW
+// ITEM ROW (tela limpa - imagem 2)
 // ═════════════════════════════════════════════════════════════════════
-function ItemRow({ item, enabledStores, onToggle, onDelete, onCategoryChange, onMarkPurchased }) {
-  const [showPrice, setShowPrice] = useState(null);
+function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete }) {
   const [showCatPicker, setShowCatPicker] = useState(false);
-  const [showManual, setShowManual] = useState(false);
-
   const cat = CATEGORIES.find(c => c.id === item.category) || CATEGORIES[9];
-  const activeStores = STORES.filter(s => enabledStores.includes(s.id));
-  const prices = item.done ? null : getBestPrices(item.name);
-
-  const isCheckedFor = (storeId) => item.done && item.bought_at === storeId;
 
   return (
     <>
-      <div style={{ background:item.done?C.linen:"#FAF8F4",borderRadius:14,marginBottom:8,overflow:"hidden",border:`1px solid ${item.done?C.linenDim:C.linen}`,opacity:item.done?0.7:1,transition:"all 0.2s" }}>
-        <div style={{ display:"flex",alignItems:"center",gap:11,padding:"13px 13px" }}>
-          <button onClick={onToggle} style={{ width:26,height:26,borderRadius:7,flexShrink:0,background:item.done?C.sage:"transparent",border:`1.5px solid ${item.done?C.sage:C.stoneSoft}`,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",color:C.graphite,fontWeight:700,transition:"all 0.2s" }}>{item.done?"✓":""}</button>
+      <div
+        style={{
+          display:"flex",alignItems:"center",gap:11,padding:"13px 13px",
+          background:item.done?C.linen:"#FAF8F4",
+          borderRadius:14,marginBottom:8,
+          border:`1px solid ${item.done?C.linenDim:C.linen}`,
+          opacity:item.done?0.7:1,transition:"all 0.2s",cursor:"pointer"
+        }}
+        onClick={onOpen}
+      >
+        <button
+          onClick={(e)=>{ e.stopPropagation(); onToggle(); }}
+          style={{
+            width:26,height:26,borderRadius:7,flexShrink:0,
+            background:item.done?C.sage:"transparent",
+            border:`1.5px solid ${item.done?C.sage:C.stoneSoft}`,
+            cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",
+            color:C.graphite,fontWeight:700,transition:"all 0.2s"
+          }}
+        >{item.done?"✓":""}</button>
 
-          <div style={{ flex:1,minWidth:0 }}>
-            <p style={{ fontWeight:500,fontSize:15,color:item.done?C.stone:C.graphite,textDecoration:item.done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'DM Sans',sans-serif" }}>{item.name}</p>
-            <p style={{ color:C.stoneSoft,fontSize:11,marginTop:1 }}>{item.qty} {item.unit}{item.note?` · ${item.note}`:""}</p>
-          </div>
-
-          <button onClick={()=>setShowCatPicker(true)} title="Editar categoria" style={{ background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:8,width:34,height:34,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>{cat.emoji}</button>
-          <button onClick={onDelete} style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:"0 2px" }}>✕</button>
+        <div style={{ flex:1,minWidth:0 }}>
+          <p style={{ fontWeight:500,fontSize:15,color:item.done?C.stone:C.graphite,textDecoration:item.done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'DM Sans',sans-serif" }}>{item.name}</p>
+          <p style={{ color:C.stoneSoft,fontSize:11,marginTop:1 }}>
+            {item.qty} {item.unit}
+            {item.done && item.bought_at ? ` · ✓ ${item.bought_at === "store" ? "Loja" : STORES.find(s=>s.id===item.bought_at)?.short}` : ""}
+          </p>
         </div>
 
-        {!item.done && (
-          <div style={{ display:"flex",gap:6,padding:"0 13px 13px",alignItems:"stretch" }}>
-            {activeStores.map(s => (
-              <div key={s.id} style={{ flex:1,background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:9,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6 }}>
-                <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:6 }}>
-                  <button
-                    onClick={()=>setShowPrice(s.id)}
-                    style={{ background:"none",border:"none",color:C.ink,fontSize:11,fontWeight:600,cursor:"pointer",padding:0,textAlign:"left",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:4,minWidth:0,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}
-                  >
-                    {s.emoji} {s.short}
-                  </button>
-                  <input
-                    type="checkbox"
-                    checked={isCheckedFor(s.id)}
-                    onChange={()=>onMarkPurchased(s.id, prices[s.id])}
-                    style={{ width:16,height:16,accentColor:C.sage,cursor:"pointer",margin:0,flexShrink:0 }}
-                    title="Marcar como comprado aqui"
-                  />
-                </div>
-                <button
-                  onClick={()=>setShowPrice(s.id)}
-                  style={{ background:"none",border:"none",cursor:"pointer",textAlign:"left",padding:0 }}
-                >
-                  <p style={{ color:C.graphite,fontSize:14,fontWeight:600,fontFamily:"'Fraunces',serif",lineHeight:1 }}>
-                    R$ {prices[s.id].toFixed(2).replace(".", ",")}
-                  </p>
-                  <p style={{ color:C.stoneSoft,fontSize:9,marginTop:2 }}>melhor preço</p>
-                </button>
-              </div>
-            ))}
+        <button
+          onClick={(e)=>{ e.stopPropagation(); setShowCatPicker(true); }}
+          title="Editar categoria"
+          style={{
+            background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:8,
+            width:34,height:34,fontSize:16,cursor:"pointer",
+            display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0
+          }}
+        >{cat.emoji}</button>
 
-            <button
-              onClick={()=>setShowManual(true)}
-              title="Comprei na loja física"
-              style={{ background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:9,padding:"8px 10px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,minWidth:54 }}
-            >
-              <span style={{ fontSize:18 }}>🏪</span>
-              <span style={{ color:C.stone,fontSize:9,fontWeight:500 }}>Loja</span>
-            </button>
-          </div>
-        )}
-
-        {item.done && item.bought_at && (
-          <div style={{ padding:"0 13px 11px" }}>
-            <p style={{ color:C.stoneSoft,fontSize:11 }}>
-              ✓ Comprado via {item.bought_at === "store" ? "Loja física" : STORES.find(s=>s.id===item.bought_at)?.label}
-              {item.bought_price ? ` · R$ ${Number(item.bought_price).toFixed(2).replace(".", ",")}` : ""}
-            </p>
-          </div>
-        )}
+        <button
+          onClick={(e)=>{ e.stopPropagation(); onDelete(); }}
+          style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:"0 2px" }}
+        >✕</button>
       </div>
 
-      {showPrice && <PricePanel item={item} storeId={showPrice} enabledStores={enabledStores} onClose={()=>setShowPrice(null)} />}
       {showCatPicker && <CategoryPicker current={item.category} onChange={onCategoryChange} onClose={()=>setShowCatPicker(false)} />}
-      {showManual && <ManualPriceModal item={item} onConfirm={(p)=>onMarkPurchased("store", p)} onClose={()=>setShowManual(false)} />}
     </>
   );
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// ADD ITEM MODAL
+// ADD ITEM MODAL (com categoria editável)
 // ═════════════════════════════════════════════════════════════════════
 function AddItemModal({ onAdd, onClose }) {
   const [name, setName] = useState("");
   const [qty, setQty] = useState("1");
   const [unit, setUnit] = useState("un");
   const [note, setNote] = useState("");
+  const [category, setCategory] = useState(null); // null = usa sugestão automática
+  const [showCatPicker, setShowCatPicker] = useState(false);
+
+  // Categoria efetiva: manual escolhida ou sugestão pelo nome
+  const effectiveCategory = category || (name.trim() ? guessCategory(name.trim()) : "outros");
+  const catObj = CATEGORIES.find(c => c.id === effectiveCategory) || CATEGORIES[9];
+  const isSuggested = !category && name.trim();
 
   const handle = () => {
     if (!name.trim()) return;
-    onAdd({ name:name.trim(), qty, unit, category:guessCategory(name.trim()), note });
+    onAdd({ name:name.trim(), qty, unit, category: effectiveCategory, note });
     onClose();
   };
-  const catGuess = name.trim() ? CATEGORIES.find(c=>c.id===guessCategory(name.trim())) : null;
 
   return (
-    <Modal
-      onClose={onClose}
-      title="Novo item"
-      footer={
-        <div style={{ display:"flex",gap:8 }}>
-          <button onClick={onClose} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>Cancelar</button>
-          <button onClick={handle} style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:"pointer",fontSize:15,fontFamily:"'DM Sans',sans-serif" }}>Adicionar</button>
-        </div>
-      }
-    >
-      <div style={{ display:"flex",flexDirection:"column",gap:9 }}>
-        <input style={inp} placeholder="Nome do item" value={name} onChange={e=>setName(e.target.value)} autoFocus onKeyDown={e=>e.key==="Enter"&&handle()} />
-        {catGuess && (
-          <div style={{ display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:`${C.sage}22`,border:`1px solid ${C.sage}55`,borderRadius:9 }}>
-            <span style={{ fontSize:16 }}>{catGuess.emoji}</span>
-            <span style={{ color:C.inkSoft,fontSize:12,fontWeight:500 }}>Categoria sugerida: {catGuess.label}</span>
+    <>
+      <Modal
+        onClose={onClose}
+        title="Novo item"
+        footer={
+          <div style={{ display:"flex",gap:8 }}>
+            <button onClick={onClose} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>Cancelar</button>
+            <button onClick={handle} style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:"pointer",fontSize:15,fontFamily:"'DM Sans',sans-serif" }}>Adicionar</button>
           </div>
-        )}
-        <div style={{ display:"flex",gap:7 }}>
-          <input style={{ ...inp,width:"30%" }} placeholder="Qtd" value={qty} onChange={e=>setQty(e.target.value)} inputMode="numeric" />
-          <select style={{ ...inp,flex:1 }} value={unit} onChange={e=>setUnit(e.target.value)}>
-            {["un","kg","g","L","ml","cx","pct","dz"].map(u=><option key={u}>{u}</option>)}
-          </select>
+        }
+      >
+        <div style={{ display:"flex",flexDirection:"column",gap:9 }}>
+          <input style={inp} placeholder="Nome do item" value={name} onChange={e=>setName(e.target.value)} autoFocus onKeyDown={e=>e.key==="Enter"&&handle()} />
+
+          {/* Categoria (sugerida ou escolhida) - clicável para editar */}
+          {name.trim() && (
+            <button
+              onClick={()=>setShowCatPicker(true)}
+              style={{
+                display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+                background:`${C.sage}22`,border:`1px solid ${C.sage}55`,borderRadius:9,
+                cursor:"pointer",textAlign:"left",fontFamily:"'DM Sans',sans-serif",width:"100%"
+              }}
+            >
+              <span style={{ fontSize:18 }}>{catObj.emoji}</span>
+              <div style={{ flex:1 }}>
+                <p style={{ color:C.stoneSoft,fontSize:10,textTransform:"uppercase",letterSpacing:1,marginBottom:2 }}>
+                  {isSuggested ? "Categoria sugerida" : "Categoria"}
+                </p>
+                <p style={{ color:C.inkSoft,fontSize:13,fontWeight:500 }}>{catObj.label}</p>
+              </div>
+              <span style={{ color:C.stone,fontSize:11 }}>Alterar →</span>
+            </button>
+          )}
+
+          <div style={{ display:"flex",gap:7 }}>
+            <input style={{ ...inp,width:"30%" }} placeholder="Qtd" value={qty} onChange={e=>setQty(e.target.value)} inputMode="numeric" />
+            <select style={{ ...inp,flex:1 }} value={unit} onChange={e=>setUnit(e.target.value)}>
+              {["un","kg","g","L","ml","cx","pct","dz"].map(u=><option key={u}>{u}</option>)}
+            </select>
+          </div>
+          <input style={inp} placeholder="Observação (opcional)" value={note} onChange={e=>setNote(e.target.value)} />
         </div>
-        <input style={inp} placeholder="Observação (opcional)" value={note} onChange={e=>setNote(e.target.value)} />
-      </div>
-    </Modal>
+      </Modal>
+
+      {showCatPicker && (
+        <CategoryPicker
+          current={effectiveCategory}
+          onChange={(cid)=>setCategory(cid)}
+          onClose={()=>setShowCatPicker(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -651,18 +689,18 @@ function ScreenLists({ lists, listCounts, onOpen, onAdd, onDelete, profile }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// SCREEN: LIST DETAIL (com ordenação + marcar/desmarcar todos + filtros corretos)
+// SCREEN: LIST DETAIL
 // ═════════════════════════════════════════════════════════════════════
 function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onToggleItem, onDeleteItem, onChangeCategory, onMarkPurchased, onToggleAll }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [openItem, setOpenItem] = useState(null);
   const [filter, setFilter] = useState("todos");
-  const [sortBy, setSortBy] = useState("ordem"); // 'ordem', 'categoria', 'alfabetica'
+  const [sortBy, setSortBy] = useState("ordem");
 
   const done = items.filter(i=>i.done).length, total = items.length;
   const progress = total ? Math.round((done/total)*100) : 0;
   const activeStores = STORES.filter(s=>enabledStores.includes(s.id));
 
-  // Filtros corretos: lojas mostram itens COMPRADOS naquela loja
   const filterTabs = [
     { v:"todos", l:"Todos" },
     { v:"pendentes", l:"Pendentes" },
@@ -676,11 +714,9 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
       if (filter==="todos") return true;
       if (filter==="pendentes") return !i.done;
       if (filter==="comprados") return i.done;
-      // Filtros de loja: mostrar itens comprados naquela loja
       return i.done && i.bought_at === filter;
     });
 
-    // Ordenação
     const sortFn = {
       ordem: (a, b) => new Date(a.created_at) - new Date(b.created_at),
       categoria: (a, b) => {
@@ -694,7 +730,6 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
 
     result = [...result].sort(sortFn);
 
-    // No filtro "Todos", empurra os comprados para o final
     if (filter === "todos") {
       result.sort((a, b) => {
         if (a.done === b.done) return 0;
@@ -706,7 +741,6 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
   })();
 
   const allDone = total > 0 && done === total;
-  const sortLabels = { ordem: "Ordem de criação", categoria: "Categoria", alfabetica: "Ordem alfabética" };
 
   return (
     <div style={{ paddingBottom:100 }}>
@@ -722,7 +756,6 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
         {total>0 && <div style={{ height:4,background:C.linenDim,borderRadius:4 }}><div style={{ height:"100%",width:`${progress}%`,borderRadius:4,background:C.sage,transition:"width 0.5s" }} /></div>}
       </div>
 
-      {/* Toolbar: ordenação + marcar/desmarcar todos */}
       {total > 0 && (
         <div style={{ display:"flex",gap:8,padding:"12px 14px 4px",alignItems:"center" }}>
           <select
@@ -753,7 +786,6 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
         </div>
       )}
 
-      {/* Filtros */}
       <div style={{ display:"flex",gap:6,padding:"8px 14px 4px",overflowX:"auto" }}>
         {filterTabs.map(({v,l})=>(
           <button key={v} onClick={()=>setFilter(v)} style={{ padding:"6px 13px",borderRadius:18,flexShrink:0,background:filter===v?C.graphite:"transparent",border:`1px solid ${filter===v?C.graphite:C.linenDim}`,color:filter===v?C.sand:C.stone,fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>{l}</button>
@@ -768,11 +800,13 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
           </div>
         )}
         {filteredAndSorted.map(item=>(
-          <ItemRow key={item.id} item={item} enabledStores={enabledStores}
+          <ItemRow
+            key={item.id}
+            item={item}
             onToggle={()=>onToggleItem(item)}
+            onOpen={()=>setOpenItem(item)}
             onDelete={()=>onDeleteItem(item.id)}
             onCategoryChange={(cid)=>onChangeCategory(item.id,cid)}
-            onMarkPurchased={(sid, price)=>onMarkPurchased(item, sid, price)}
           />
         ))}
       </div>
@@ -780,12 +814,20 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
       <button onClick={()=>setShowAdd(true)} style={{ position:"fixed",bottom:80,right:16,width:54,height:54,borderRadius:"50%",background:C.sage,border:"none",fontSize:26,cursor:"pointer",boxShadow:`0 6px 20px ${C.sage}66, 0 2px 6px rgba(26,31,42,0.15)`,display:"flex",alignItems:"center",justifyContent:"center",color:C.graphite,fontWeight:600,zIndex:100 }}>+</button>
 
       {showAdd && <AddItemModal onAdd={async item=>{await onAddItem(item);setShowAdd(false)}} onClose={()=>setShowAdd(false)} />}
+      {openItem && (
+        <ItemDetailModal
+          item={openItem}
+          enabledStores={enabledStores}
+          onClose={()=>setOpenItem(null)}
+          onMarkPurchased={(storeId, price, url)=>onMarkPurchased(openItem, storeId, price, url)}
+        />
+      )}
     </div>
   );
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// SCREEN: HISTORY (com modo de seleção múltipla + ordenação)
+// SCREEN: HISTORY
 // ═════════════════════════════════════════════════════════════════════
 function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
   const [storeFilter, setStoreFilter] = useState("all");
@@ -827,20 +869,17 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
     });
   };
 
-  // Marca/desmarca todos os itens VISÍVEIS (respeitando filtros)
   const visibleIds = filteredAndSorted.map(i => i.id);
   const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
 
   const toggleAll = () => {
     if (allSelected) {
-      // Desmarcar todos os visíveis
       setSelectedIds(prev => {
         const next = new Set(prev);
         visibleIds.forEach(id => next.delete(id));
         return next;
       });
     } else {
-      // Marcar todos os visíveis
       setSelectedIds(prev => {
         const next = new Set(prev);
         visibleIds.forEach(id => next.add(id));
@@ -865,7 +904,6 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
         <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:26,fontWeight:500,color:C.graphite,letterSpacing:"-0.5px" }}>Compras realizadas</h2>
       </div>
 
-      {/* Toolbar: ordenação + marcar/desmarcar todos (mesmo padrão da Lista) */}
       {history.length > 0 && (
         <div style={{ display:"flex",gap:8,padding:"0 14px 10px",alignItems:"center" }}>
           <select
@@ -947,7 +985,6 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
         )}
       </div>
 
-      {/* Barra inferior de ações quando há seleção */}
       {hasSelection && (
         <div style={{
           position:"fixed", bottom:56, left:"50%", transform:"translateX(-50%)",
@@ -1113,7 +1150,7 @@ function ScreenSettings({ profile, onSave, onLogout }) {
 
         <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"14px",border:`1px solid ${C.linen}`,borderRadius:13 }}>
           <FeiraLogo size={20} color={C.stoneSoft} accent={C.stoneSoft} />
-          <p style={{ color:C.stoneSoft,fontSize:11,fontFamily:"'Fraunces',serif",fontStyle:"italic" }}>feira · v1.2</p>
+          <p style={{ color:C.stoneSoft,fontSize:11,fontFamily:"'Fraunces',serif",fontStyle:"italic" }}>feira · v1.3</p>
         </div>
       </div>
     </div>
@@ -1143,31 +1180,6 @@ function BottomNav({ tab, setTab }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// UNDO TOAST (1 minuto agora)
-// ═════════════════════════════════════════════════════════════════════
-function UndoToast({ message, onUndo, onTimeout }) {
-  const [timeLeft, setTimeLeft] = useState(60);
-
-  useEffect(() => {
-    if (timeLeft <= 0) { onTimeout(); return; }
-    const t = setTimeout(() => setTimeLeft(s => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [timeLeft, onTimeout]);
-
-  const mins = Math.floor(timeLeft / 60);
-  const secs = timeLeft % 60;
-  const timeStr = `${mins}:${secs.toString().padStart(2, "0")}`;
-
-  return (
-    <div style={{ position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",background:C.graphite,color:C.sand,padding:"12px 16px",borderRadius:12,fontSize:13,zIndex:999,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:14,boxShadow:"0 6px 24px rgba(0,0,0,0.25)",maxWidth:"calc(100% - 24px)" }}>
-      <span style={{ flex:1 }}>{message}</span>
-      <span style={{ color:C.stoneSoft,fontSize:11,fontVariantNumeric:"tabular-nums" }}>{timeStr}</span>
-      <button onClick={onUndo} style={{ background:C.sage,color:C.graphite,border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Desfazer</button>
-    </div>
-  );
-}
-
-// ═════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ═════════════════════════════════════════════════════════════════════
 export default function App() {
@@ -1180,7 +1192,10 @@ export default function App() {
   const [activeList, setActiveList] = useState(null);
   const [tab, setTab] = useState("lists");
   const [savedMsg, setSavedMsg] = useState(false);
-  const [pendingUndo, setPendingUndo] = useState(null);
+
+  // Janela de desfazer silenciosa: backend permite reverter por 1 minuto
+  // Guarda timestamps de marcações recentes em memória
+  const [recentMarks, setRecentMarks] = useState({}); // { itemId: timestamp }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session }}) => {
@@ -1253,6 +1268,7 @@ export default function App() {
     if (data) setItems(prev => [...prev, data]);
   };
 
+  // Toggle simples (checkbox direto na lista)
   const toggleItem = async (item) => {
     const newDone = !item.done;
     const { data } = await supabase.from("items").update({
@@ -1261,6 +1277,7 @@ export default function App() {
       bought_date: newDone ? new Date().toISOString() : null,
     }).eq("id", item.id).select().single();
     if (data) setItems(prev => prev.map(i => i.id===item.id ? data : i));
+    setTimeout(loadHistory, 300);
   };
 
   const deleteItem = async (id) => {
@@ -1273,7 +1290,9 @@ export default function App() {
     if (data) setItems(prev => prev.map(i => i.id===id ? data : i));
   };
 
-  const markPurchased = async (item, storeId, price) => {
+  // Marca como comprado em loja específica + abre URL em nova aba
+  const markPurchased = async (item, storeId, price, url) => {
+    // Se já está marcado nesta loja, desmarca
     if (item.done && item.bought_at === storeId) {
       const { data } = await supabase.from("items").update({
         done: false, bought_at: null, bought_date: null, bought_price: null
@@ -1290,18 +1309,17 @@ export default function App() {
 
     if (data) {
       setItems(prev => prev.map(i => i.id===item.id ? data : i));
+      // Marca para janela silenciosa de desfazer (60s)
+      setRecentMarks(prev => ({ ...prev, [item.id]: Date.now() }));
       setTimeout(loadHistory, 500);
 
-      const storeName = storeId === "store" ? "Loja física" : STORES.find(s=>s.id===storeId)?.label;
-      setPendingUndo({
-        itemId: item.id,
-        prevState: { done: item.done, bought_at: item.bought_at, bought_date: item.bought_date, bought_price: item.bought_price },
-        message: `✓ ${item.name} marcado em ${storeName}`,
-      });
+      // Abre o link da loja em nova aba (se houver)
+      if (url) {
+        try { window.open(url, "_blank", "noopener,noreferrer"); } catch {}
+      }
     }
   };
 
-  // Marcar/desmarcar todos
   const toggleAllItems = async (markAsDone) => {
     if (!activeList) return;
     const updates = { done: markAsDone };
@@ -1316,19 +1334,6 @@ export default function App() {
       .select();
     if (data) setItems(data);
     setTimeout(loadHistory, 300);
-  };
-
-  const handleUndo = async () => {
-    if (!pendingUndo) return;
-    const { itemId, prevState } = pendingUndo;
-    const { data } = await supabase.from("items").update(prevState).eq("id", itemId).select().single();
-    if (data) {
-      setItems(prev => prev.map(i => i.id===itemId ? data : i));
-      const recent = history.find(h => h.item_name === data.name);
-      if (recent) await supabase.from("purchase_history").delete().eq("id", recent.id);
-      setTimeout(loadHistory, 300);
-    }
-    setPendingUndo(null);
   };
 
   const deleteHistoryRecord = async (recordId) => {
@@ -1409,14 +1414,6 @@ export default function App() {
       )}
 
       <BottomNav tab={activeList?"lists":tab} setTab={(t)=>{ setActiveList(null); setTab(t); }} />
-
-      {pendingUndo && (
-        <UndoToast
-          message={pendingUndo.message}
-          onUndo={handleUndo}
-          onTimeout={()=>setPendingUndo(null)}
-        />
-      )}
     </div>
   );
 }
