@@ -351,9 +351,26 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
   };
 
   // Marca como comprado em ML/Amazon e abre o link em nova aba
+  // IMPORTANTE: window.open() PRECISA ser chamado de forma síncrona no clique,
+  // senão navegadores móveis (Safari iOS, Chrome Android) bloqueiam como popup.
+  // Por isso abrimos a aba ANTES de chamar onMarkPurchased (que é async).
   const handleMarkAndOpen = (productUrl, price) => {
-    onMarkPurchased(tab, price, productUrl);
+    // Abre a aba imediatamente (resposta síncrona ao clique do usuário)
+    let newWindow = null;
+    try {
+      newWindow = window.open(productUrl, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      // Fallback: se window.open falhar totalmente, redireciona a janela atual
+    }
+
+    // Marca como comprado em segundo plano (não passa URL para evitar reabrir)
+    onMarkPurchased(tab, price);
     onClose();
+
+    // Se window.open foi bloqueado mesmo assim, redireciona como fallback
+    if (!newWindow || newWindow.closed) {
+      window.location.href = productUrl;
+    }
   };
 
   // Marca como comprado na loja física (com valor manual)
@@ -695,7 +712,7 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
   const [showAdd, setShowAdd] = useState(false);
   const [openItem, setOpenItem] = useState(null);
   const [filter, setFilter] = useState("todos");
-  const [sortBy, setSortBy] = useState("ordem");
+  const [sortBy, setSortBy] = useState("categoria");
 
   const done = items.filter(i=>i.done).length, total = items.length;
   const progress = total ? Math.round((done/total)*100) : 0;
@@ -767,8 +784,8 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
               outline:"none", cursor:"pointer"
             }}
           >
-            <option value="ordem">↕ Ordem de criação</option>
             <option value="categoria">📂 Por categoria</option>
+            <option value="ordem">↕ Ordem de criação</option>
             <option value="alfabetica">🔤 Ordem alfabética</option>
           </select>
           <button
@@ -819,7 +836,7 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
           item={openItem}
           enabledStores={enabledStores}
           onClose={()=>setOpenItem(null)}
-          onMarkPurchased={(storeId, price, url)=>onMarkPurchased(openItem, storeId, price, url)}
+          onMarkPurchased={(storeId, price)=>onMarkPurchased(openItem, storeId, price)}
         />
       )}
     </div>
@@ -1290,8 +1307,10 @@ export default function App() {
     if (data) setItems(prev => prev.map(i => i.id===id ? data : i));
   };
 
-  // Marca como comprado em loja específica + abre URL em nova aba
-  const markPurchased = async (item, storeId, price, url) => {
+  // Marca como comprado em loja específica
+  // NOTA: a abertura da URL em nova aba é feita pelo ItemDetailModal de forma SÍNCRONA
+  // no clique do usuário, para não ser bloqueada por navegadores móveis.
+  const markPurchased = async (item, storeId, price) => {
     // Se já está marcado nesta loja, desmarca
     if (item.done && item.bought_at === storeId) {
       const { data } = await supabase.from("items").update({
@@ -1312,11 +1331,6 @@ export default function App() {
       // Marca para janela silenciosa de desfazer (60s)
       setRecentMarks(prev => ({ ...prev, [item.id]: Date.now() }));
       setTimeout(loadHistory, 500);
-
-      // Abre o link da loja em nova aba (se houver)
-      if (url) {
-        try { window.open(url, "_blank", "noopener,noreferrer"); } catch {}
-      }
     }
   };
 
