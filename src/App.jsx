@@ -356,21 +356,17 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
   // Por isso abrimos a aba ANTES de chamar onMarkPurchased (que é async).
   const handleMarkAndOpen = (productUrl, price) => {
     // Abre a aba imediatamente (resposta síncrona ao clique do usuário)
-    let newWindow = null;
+    // Se o navegador bloquear popups, a aba simplesmente não abre — preferimos
+    // isso a redirecionar a página atual e perder o contexto do app.
     try {
-      newWindow = window.open(productUrl, "_blank", "noopener,noreferrer");
+      window.open(productUrl, "_blank", "noopener,noreferrer");
     } catch (e) {
-      // Fallback: se window.open falhar totalmente, redireciona a janela atual
+      // Silencioso: se falhar, o usuário pode tocar de novo
     }
 
-    // Marca como comprado em segundo plano (não passa URL para evitar reabrir)
+    // Marca como comprado em segundo plano
     onMarkPurchased(tab, price);
     onClose();
-
-    // Se window.open foi bloqueado mesmo assim, redireciona como fallback
-    if (!newWindow || newWindow.closed) {
-      window.location.href = productUrl;
-    }
   };
 
   // Marca como comprado na loja física (com valor manual)
