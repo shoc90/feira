@@ -48,25 +48,24 @@ const STORES = [
 ];
 
 // ═════════════════════════════════════════════════════════════════════
-// PREÇOS SIMULADOS DO MERCADO LIVRE (temporário — API real virá em breve)
+// API REAL DO MERCADO LIVRE (via Vercel Serverless)
 // ═════════════════════════════════════════════════════════════════════
-function fakePrice(name, mult = 1) {
-  const seed = name.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-  const base = 4.9 + ((seed * 9301 + 49297) % 233280) / 233280 * 85;
-  return Math.round(base * mult * 100) / 100;
-}
-function getMLResults(name) {
-  const q = encodeURIComponent(name);
-  const base = fakePrice(name);
-  return [
-    { id:"ml1", title:`${name} — Marca Premium`, price:base, delivery:"Chega amanhã", freeShipping:base>49, rating:4.5, url:`https://lista.mercadolivre.com.br/${q}` },
-    { id:"ml2", title:`${name} — Embalagem Econômica`, price:fakePrice(name+"2",0.82), delivery:"Chega em 2 dias", freeShipping:false, rating:4.1, url:`https://lista.mercadolivre.com.br/${q}` },
-  ];
+async function fetchMLProducts(name) {
+  try {
+    const res = await fetch(`/api/ml-search?q=${encodeURIComponent(name)}&limit=5`);
+    if (!res.ok) {
+      console.error("ML API erro:", res.status);
+      return null;
+    }
+    const data = await res.json();
+    return data.results || [];
+  } catch (e) {
+    console.error("Erro ao buscar ML:", e);
+    return null;
+  }
 }
 
-// ═════════════════════════════════════════════════════════════════════
-// AMAZON — só link de busca com tag de afiliado (sem preços por exigência da Amazon)
-// ═════════════════════════════════════════════════════════════════════
+// Helper: link de busca da Amazon com tag
 function amazonSearchUrl(name) {
   const tag = AFFILIATE.amazon || "";
   const q = encodeURIComponent(name);
@@ -327,26 +326,32 @@ function CategoryPicker({ current, onChange, onClose }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// ITEM DETAIL MODAL — agora com Amazon SEM PREÇO
+// ITEM DETAIL MODAL — agora com API REAL do Mercado Livre
 // ═════════════════════════════════════════════════════════════════════
 function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
   const activeStores = STORES.filter(s => enabledStores.includes(s.id));
   const [tab, setTab] = useState(activeStores[0]?.id || "ml");
   const [loading, setLoading] = useState(true);
   const [mlResults, setMlResults] = useState(null);
+  const [mlError, setMlError] = useState(false);
 
   const [storePrice, setStorePrice] = useState("");
   const [storeError, setStoreError] = useState(null);
 
-  // Carrega ML quando troca para a aba
+  // Carrega ML real quando troca para a aba
   useEffect(() => {
     if (tab !== "ml") { setLoading(false); return; }
     setLoading(true);
-    const t = setTimeout(() => {
-      setMlResults(getMLResults(item.name));
+    setMlError(false);
+    fetchMLProducts(item.name).then(results => {
+      if (results === null) {
+        setMlError(true);
+        setMlResults([]);
+      } else {
+        setMlResults(results);
+      }
       setLoading(false);
-    }, 500);
-    return () => clearTimeout(t);
+    });
   }, [item.name, tab]);
 
   const formatBRL = (v) => {
@@ -376,7 +381,6 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
     { id: "store", label: "Loja", emoji: "🏪" }
   ];
 
-  // Footer dinâmico por aba
   let footer;
   if (tab === "store") {
     footer = (
@@ -395,7 +399,6 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
 
   return (
     <Modal onClose={onClose} title={item.name} footer={footer}>
-      {/* Tabs com 3 botões: ML, Amazon, Loja */}
       <div style={{ display:"flex",gap:6,marginBottom:18 }}>
         {tabs.map(t => (
           <button
@@ -442,7 +445,7 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
         </div>
       )}
 
-      {/* ─── ABA AMAZON: SEM PREÇO, SÓ LINK ─── */}
+      {/* ─── ABA AMAZON ─── */}
       {tab === "amazon" && (
         <div>
           <div style={{ background:C.linen,borderRadius:14,border:`1px solid ${C.linenDim}`,padding:"18px",textAlign:"center",marginBottom:12 }}>
@@ -471,40 +474,108 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
         </div>
       )}
 
-      {/* ─── ABA MERCADO LIVRE ─── */}
+      {/* ─── ABA MERCADO LIVRE — AGORA COM API REAL ─── */}
       {tab === "ml" && (
         <>
-          {loading ? (
-            <div style={{ textAlign:"center",padding:"32px 0",color:C.stone }}>
-              <div style={{ width:32,height:32,margin:"0 auto 10px",border:`2px solid ${C.linenDim}`,borderTop:`2px solid ${C.sage}`,borderRadius:"50%",animation:"spin 0.8s linear infinite" }} />
-              <p style={{ fontSize:13 }}>Buscando preços...</p>
+          {loading && (
+            <div style={{ textAlign:"center",padding:"40px 0",color:C.stone }}>
+              <div style={{ width:32,height:32,margin:"0 auto 12px",border:`2px solid ${C.linenDim}`,borderTop:`2px solid ${C.sage}`,borderRadius:"50%",animation:"spin 0.8s linear infinite" }} />
+              <p style={{ fontSize:13 }}>Buscando preços ao vivo...</p>
             </div>
-          ) : mlResults && mlResults.map(p => (
-            <div key={p.id} style={{ background:C.linen,borderRadius:14,border:`1px solid ${C.linenDim}`,padding:"14px",marginBottom:9 }}>
-              <div style={{ display:"flex",justifyContent:"space-between",marginBottom:5 }}>
-                <span style={{ fontSize:10,color:C.stone,fontWeight:500,textTransform:"uppercase",letterSpacing:0.8 }}>🛍️ Mercado Livre</span>
-                <span style={{ fontSize:11,color:C.stoneSoft }}>★ {p.rating}</span>
-              </div>
-              <p style={{ color:C.ink,fontSize:13,marginBottom:10,lineHeight:1.4 }}>{p.title}</p>
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:12 }}>
-                <span style={{ color:C.graphite,fontWeight:500,fontSize:24,fontFamily:"'Fraunces',serif",letterSpacing:"-0.5px" }}>R$ {p.price.toFixed(2).replace(".",",")}</span>
-                <div style={{ textAlign:"right" }}>
-                  <p style={{ color:p.freeShipping?C.sageDeep:C.stone,fontSize:11,fontWeight:500 }}>{p.freeShipping?"Frete grátis":"+ frete"}</p>
-                  <p style={{ color:C.stoneSoft,fontSize:11 }}>{p.delivery}</p>
-                </div>
-              </div>
-              <button
-                onClick={()=>handleMarkAndOpen(p.url, p.price, "ml")}
+          )}
+
+          {!loading && mlError && (
+            <div style={{ background:`${C.terracota}15`,border:`1px solid ${C.terracota}55`,borderRadius:11,padding:"14px",textAlign:"center" }}>
+              <p style={{ color:C.terracota,fontSize:13,marginBottom:10 }}>
+                Não conseguimos buscar os preços agora.
+              </p>
+              <a
+                href={`https://lista.mercadolivre.com.br/${encodeURIComponent(item.name)}`}
+                target="_blank"
+                rel="noreferrer"
+                onClick={()=>onMarkPurchased("ml", null)}
                 style={{
-                  width:"100%", padding:"11px",borderRadius:9,fontWeight:600,fontSize:13,
-                  background:C.sage,color:C.graphite,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"
+                  display:"inline-block", padding:"10px 16px", background:C.sage,
+                  color:C.graphite, borderRadius:9, fontSize:13, fontWeight:600,
+                  textDecoration:"none", fontFamily:"'DM Sans',sans-serif"
                 }}
               >
-                Comprar e marcar como comprado →
-              </button>
+                Buscar no site do Mercado Livre →
+              </a>
             </div>
-          ))}
-          <p style={{ color:C.stoneSoft,fontSize:10,textAlign:"center",marginTop:6,fontStyle:"italic" }}>preços simulados · API real em breve</p>
+          )}
+
+          {!loading && !mlError && mlResults && mlResults.length === 0 && (
+            <div style={{ textAlign:"center",padding:"30px 12px",color:C.stoneSoft }}>
+              <div style={{ fontSize:34,marginBottom:10,opacity:0.4 }}>🔍</div>
+              <p style={{ color:C.stone,fontSize:14 }}>Nenhum produto encontrado para "{item.name}"</p>
+            </div>
+          )}
+
+          {!loading && !mlError && mlResults && mlResults.map(p => {
+            const hasDiscount = p.original_price && p.original_price > p.price;
+            const discountPct = hasDiscount ? Math.round((1 - p.price / p.original_price) * 100) : 0;
+            return (
+              <div key={p.id} style={{ background:C.linen,borderRadius:14,border:`1px solid ${C.linenDim}`,padding:"12px",marginBottom:9,display:"flex",gap:12 }}>
+                {p.thumbnail && (
+                  <img
+                    src={p.thumbnail}
+                    alt={p.title}
+                    style={{ width:70,height:70,borderRadius:9,objectFit:"contain",background:"#fff",flexShrink:0 }}
+                    onError={(e)=>{ e.target.style.display="none"; }}
+                  />
+                )}
+                <div style={{ flex:1,minWidth:0,display:"flex",flexDirection:"column" }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4 }}>
+                    <span style={{ fontSize:9,color:C.stone,fontWeight:500,textTransform:"uppercase",letterSpacing:0.8 }}>🛍️ Mercado Livre</span>
+                    {p.sold_quantity > 0 && (
+                      <span style={{ fontSize:10,color:C.stoneSoft }}>
+                        {p.sold_quantity > 1000 ? `${(p.sold_quantity/1000).toFixed(1)}k` : p.sold_quantity} vend.
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ color:C.ink,fontSize:12,marginBottom:6,lineHeight:1.35,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden" }}>
+                    {p.title}
+                  </p>
+                  <div style={{ display:"flex",alignItems:"baseline",gap:6,marginBottom:6 }}>
+                    <span style={{ color:C.graphite,fontWeight:500,fontSize:18,fontFamily:"'Fraunces',serif",letterSpacing:"-0.3px" }}>
+                      R$ {p.price.toFixed(2).replace(".",",")}
+                    </span>
+                    {hasDiscount && (
+                      <span style={{ color:C.sageDeep,fontSize:10,fontWeight:600,background:`${C.sage}33`,padding:"2px 5px",borderRadius:4 }}>
+                        -{discountPct}%
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:8 }}>
+                    {p.free_shipping ? (
+                      <span style={{ color:C.sageDeep,fontSize:10,fontWeight:600 }}>✓ Frete grátis</span>
+                    ) : (
+                      <span style={{ color:C.stoneSoft,fontSize:10 }}>+ frete</span>
+                    )}
+                    {p.condition === "new" && (
+                      <span style={{ color:C.stoneSoft,fontSize:10 }}>Novo</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={()=>handleMarkAndOpen(p.permalink, p.price, "ml")}
+                    style={{
+                      width:"100%", padding:"9px",borderRadius:8,fontWeight:600,fontSize:12,
+                      background:C.sage,color:C.graphite,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"
+                    }}
+                  >
+                    Comprar e marcar como comprado →
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+
+          {!loading && !mlError && mlResults && mlResults.length > 0 && (
+            <p style={{ color:C.stoneSoft,fontSize:10,textAlign:"center",marginTop:8,fontStyle:"italic" }}>
+              Preços ao vivo do Mercado Livre · atualizados a cada 5 min
+            </p>
+          )}
         </>
       )}
     </Modal>
@@ -1184,7 +1255,7 @@ function ScreenSettings({ profile, onSave, onLogout }) {
 
         <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"14px",border:`1px solid ${C.linen}`,borderRadius:13 }}>
           <FeiraLogo size={20} color={C.stoneSoft} accent={C.stoneSoft} />
-          <p style={{ color:C.stoneSoft,fontSize:11,fontFamily:"'Fraunces',serif",fontStyle:"italic" }}>feira · v1.4</p>
+          <p style={{ color:C.stoneSoft,fontSize:11,fontFamily:"'Fraunces',serif",fontStyle:"italic" }}>feira · v1.5 · API ML</p>
         </div>
       </div>
     </div>
