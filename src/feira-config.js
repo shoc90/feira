@@ -12,6 +12,6 @@ export const SUPABASE_ANON_KEY =
 // IDs de afiliado (para quando você se cadastrar nos programas)
 // ═══════════════════════════════════════════════════════════════════
 export const AFFILIATE = {
-  ml: 'SEU_ID_ML', // Mercado Ads → ?partner_id=...
-  amazon: 'seusite-20', // Amazon Associates → tag=...
+  ml: "",
+  amazon: "feira0f-20",
 };

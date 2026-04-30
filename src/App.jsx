@@ -48,26 +48,29 @@ const STORES = [
 ];
 
 // ═════════════════════════════════════════════════════════════════════
-// FAKE PRICES
+// PREÇOS SIMULADOS DO MERCADO LIVRE (temporário — API real virá em breve)
 // ═════════════════════════════════════════════════════════════════════
 function fakePrice(name, mult = 1) {
   const seed = name.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
   const base = 4.9 + ((seed * 9301 + 49297) % 233280) / 233280 * 85;
   return Math.round(base * mult * 100) / 100;
 }
-function getResults(name) {
+function getMLResults(name) {
   const q = encodeURIComponent(name);
   const base = fakePrice(name);
-  return {
-    ml: [
-      { id:"ml1", title:`${name} — Marca Premium`, price:base, delivery:"Chega amanhã", freeShipping:base>49, rating:4.5, url:`https://lista.mercadolivre.com.br/${q}?partner_id=${AFFILIATE.ml}` },
-      { id:"ml2", title:`${name} — Embalagem Econômica`, price:fakePrice(name+"2",0.82), delivery:"Chega em 2 dias", freeShipping:false, rating:4.1, url:`https://lista.mercadolivre.com.br/${q}?partner_id=${AFFILIATE.ml}` },
-    ],
-    amazon: [
-      { id:"a1", title:`${name} — Amazon's Choice`, price:fakePrice(name+"a",0.91), delivery:"Prime: amanhã", freeShipping:true, rating:4.7, url:`https://www.amazon.com.br/s?k=${q}&tag=${AFFILIATE.amazon}` },
-      { id:"a2", title:`${name} — Pacote Família`, price:fakePrice(name+"a2",1.08), delivery:"Chega em 3 dias", freeShipping:false, rating:4.2, url:`https://www.amazon.com.br/s?k=${q}&tag=${AFFILIATE.amazon}` },
-    ],
-  };
+  return [
+    { id:"ml1", title:`${name} — Marca Premium`, price:base, delivery:"Chega amanhã", freeShipping:base>49, rating:4.5, url:`https://lista.mercadolivre.com.br/${q}` },
+    { id:"ml2", title:`${name} — Embalagem Econômica`, price:fakePrice(name+"2",0.82), delivery:"Chega em 2 dias", freeShipping:false, rating:4.1, url:`https://lista.mercadolivre.com.br/${q}` },
+  ];
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// AMAZON — só link de busca com tag de afiliado (sem preços por exigência da Amazon)
+// ═════════════════════════════════════════════════════════════════════
+function amazonSearchUrl(name) {
+  const tag = AFFILIATE.amazon || "";
+  const q = encodeURIComponent(name);
+  return tag ? `https://www.amazon.com.br/s?k=${q}&tag=${tag}` : `https://www.amazon.com.br/s?k=${q}`;
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -324,24 +327,27 @@ function CategoryPicker({ current, onChange, onClose }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// ITEM DETAIL MODAL (novo - tela 3 reformulada)
+// ITEM DETAIL MODAL — agora com Amazon SEM PREÇO
 // ═════════════════════════════════════════════════════════════════════
 function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
-  // Tab ativa: primeira loja habilitada por padrão
   const activeStores = STORES.filter(s => enabledStores.includes(s.id));
   const [tab, setTab] = useState(activeStores[0]?.id || "ml");
   const [loading, setLoading] = useState(true);
-  const [results, setResults] = useState(null);
+  const [mlResults, setMlResults] = useState(null);
 
-  // Estado da Loja física
   const [storePrice, setStorePrice] = useState("");
   const [storeError, setStoreError] = useState(null);
 
+  // Carrega ML quando troca para a aba
   useEffect(() => {
+    if (tab !== "ml") { setLoading(false); return; }
     setLoading(true);
-    const t = setTimeout(() => { setResults(getResults(item.name)); setLoading(false); }, 600);
+    const t = setTimeout(() => {
+      setMlResults(getMLResults(item.name));
+      setLoading(false);
+    }, 500);
     return () => clearTimeout(t);
-  }, [item.name]);
+  }, [item.name, tab]);
 
   const formatBRL = (v) => {
     const digits = v.replace(/\D/g, "");
@@ -350,26 +356,13 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
     return num.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  // Marca como comprado em ML/Amazon e abre o link em nova aba
-  // IMPORTANTE: window.open() PRECISA ser chamado de forma síncrona no clique,
-  // senão navegadores móveis (Safari iOS, Chrome Android) bloqueiam como popup.
-  // Por isso abrimos a aba ANTES de chamar onMarkPurchased (que é async).
-  const handleMarkAndOpen = (productUrl, price) => {
-    // Abre a aba imediatamente (resposta síncrona ao clique do usuário)
-    // Se o navegador bloquear popups, a aba simplesmente não abre — preferimos
-    // isso a redirecionar a página atual e perder o contexto do app.
-    try {
-      window.open(productUrl, "_blank", "noopener,noreferrer");
-    } catch (e) {
-      // Silencioso: se falhar, o usuário pode tocar de novo
-    }
-
-    // Marca como comprado em segundo plano
-    onMarkPurchased(tab, price);
+  // Marca + abre URL (síncrono pra não ser bloqueado por mobile)
+  const handleMarkAndOpen = (productUrl, price, storeId) => {
+    try { window.open(productUrl, "_blank", "noopener,noreferrer"); } catch {}
+    onMarkPurchased(storeId, price);
     onClose();
   };
 
-  // Marca como comprado na loja física (com valor manual)
   const handleStoreSubmit = () => {
     const cleaned = storePrice.replace(/\./g, "").replace(",", ".");
     const num = parseFloat(cleaned);
@@ -378,29 +371,30 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
     onClose();
   };
 
-  // Tabs incluindo Loja física
   const tabs = [
     ...activeStores.map(s => ({ id: s.id, label: s.short, emoji: s.emoji })),
     { id: "store", label: "Loja", emoji: "🏪" }
   ];
 
+  // Footer dinâmico por aba
+  let footer;
+  if (tab === "store") {
+    footer = (
+      <div style={{ display:"flex",gap:8 }}>
+        <button onClick={onClose} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>Voltar</button>
+        <button onClick={handleStoreSubmit} style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:"pointer",fontSize:15,fontFamily:"'DM Sans',sans-serif" }}>Marcar como comprado</button>
+      </div>
+    );
+  } else {
+    footer = (
+      <button onClick={onClose} style={{ width:"100%",padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>
+        Voltar sem escolher
+      </button>
+    );
+  }
+
   return (
-    <Modal
-      onClose={onClose}
-      title={item.name}
-      footer={
-        tab !== "store" ? (
-          <button onClick={onClose} style={{ width:"100%",padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>
-            Voltar sem escolher
-          </button>
-        ) : (
-          <div style={{ display:"flex",gap:8 }}>
-            <button onClick={onClose} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>Voltar</button>
-            <button onClick={handleStoreSubmit} style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:"pointer",fontSize:15,fontFamily:"'DM Sans',sans-serif" }}>Marcar como comprado</button>
-          </div>
-        )
-      }
-    >
+    <Modal onClose={onClose} title={item.name} footer={footer}>
       {/* Tabs com 3 botões: ML, Amazon, Loja */}
       <div style={{ display:"flex",gap:6,marginBottom:18 }}>
         {tabs.map(t => (
@@ -423,7 +417,7 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
         ))}
       </div>
 
-      {/* Aba Loja física */}
+      {/* ─── ABA LOJA FÍSICA ─── */}
       {tab === "store" && (
         <div>
           <p style={{ color:C.inkSoft,fontSize:13,marginBottom:14,lineHeight:1.5 }}>
@@ -448,18 +442,47 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
         </div>
       )}
 
-      {/* Abas ML e Amazon */}
-      {tab !== "store" && (
+      {/* ─── ABA AMAZON: SEM PREÇO, SÓ LINK ─── */}
+      {tab === "amazon" && (
+        <div>
+          <div style={{ background:C.linen,borderRadius:14,border:`1px solid ${C.linenDim}`,padding:"18px",textAlign:"center",marginBottom:12 }}>
+            <div style={{ fontSize:42, marginBottom:8 }}>📦</div>
+            <h4 style={{ fontFamily:"'Fraunces',serif",fontSize:18,fontWeight:500,color:C.graphite,marginBottom:6 }}>
+              Buscar na Amazon
+            </h4>
+            <p style={{ color:C.inkSoft,fontSize:13,lineHeight:1.5,marginBottom:14 }}>
+              Veja todas as opções disponíveis para <strong>{item.name}</strong> direto no site da Amazon, com preços atualizados, frete e prazo de entrega.
+            </p>
+            <button
+              onClick={()=>handleMarkAndOpen(amazonSearchUrl(item.name), null, "amazon")}
+              style={{
+                width:"100%", padding:"13px", borderRadius:10, fontWeight:600, fontSize:14,
+                background:C.sage, color:C.graphite, border:"none", cursor:"pointer",
+                fontFamily:"'DM Sans',sans-serif"
+              }}
+            >
+              🔍 Buscar e marcar como comprado
+            </button>
+          </div>
+          <p style={{ color:C.stoneSoft,fontSize:10,textAlign:"center",fontStyle:"italic",lineHeight:1.5 }}>
+            Os preços da Amazon são exibidos somente no site oficial.<br/>
+            Ao clicar, abrimos a busca em nova aba.
+          </p>
+        </div>
+      )}
+
+      {/* ─── ABA MERCADO LIVRE ─── */}
+      {tab === "ml" && (
         <>
           {loading ? (
             <div style={{ textAlign:"center",padding:"32px 0",color:C.stone }}>
               <div style={{ width:32,height:32,margin:"0 auto 10px",border:`2px solid ${C.linenDim}`,borderTop:`2px solid ${C.sage}`,borderRadius:"50%",animation:"spin 0.8s linear infinite" }} />
               <p style={{ fontSize:13 }}>Buscando preços...</p>
             </div>
-          ) : results && results[tab].map(p => (
+          ) : mlResults && mlResults.map(p => (
             <div key={p.id} style={{ background:C.linen,borderRadius:14,border:`1px solid ${C.linenDim}`,padding:"14px",marginBottom:9 }}>
               <div style={{ display:"flex",justifyContent:"space-between",marginBottom:5 }}>
-                <span style={{ fontSize:10,color:C.stone,fontWeight:500,textTransform:"uppercase",letterSpacing:0.8 }}>{STORES.find(s=>s.id===tab)?.emoji} {STORES.find(s=>s.id===tab)?.label}</span>
+                <span style={{ fontSize:10,color:C.stone,fontWeight:500,textTransform:"uppercase",letterSpacing:0.8 }}>🛍️ Mercado Livre</span>
                 <span style={{ fontSize:11,color:C.stoneSoft }}>★ {p.rating}</span>
               </div>
               <p style={{ color:C.ink,fontSize:13,marginBottom:10,lineHeight:1.4 }}>{p.title}</p>
@@ -471,7 +494,7 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
                 </div>
               </div>
               <button
-                onClick={()=>handleMarkAndOpen(p.url, p.price)}
+                onClick={()=>handleMarkAndOpen(p.url, p.price, "ml")}
                 style={{
                   width:"100%", padding:"11px",borderRadius:9,fontWeight:600,fontSize:13,
                   background:C.sage,color:C.graphite,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"
@@ -481,7 +504,7 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
               </button>
             </div>
           ))}
-          <p style={{ color:C.stoneSoft,fontSize:10,textAlign:"center",marginTop:6,fontStyle:"italic" }}>preços simulados · API em breve</p>
+          <p style={{ color:C.stoneSoft,fontSize:10,textAlign:"center",marginTop:6,fontStyle:"italic" }}>preços simulados · API real em breve</p>
         </>
       )}
     </Modal>
@@ -489,7 +512,7 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// ITEM ROW (tela limpa - imagem 2)
+// ITEM ROW
 // ═════════════════════════════════════════════════════════════════════
 function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete }) {
   const [showCatPicker, setShowCatPicker] = useState(false);
@@ -548,17 +571,16 @@ function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// ADD ITEM MODAL (com categoria editável)
+// ADD ITEM MODAL
 // ═════════════════════════════════════════════════════════════════════
 function AddItemModal({ onAdd, onClose }) {
   const [name, setName] = useState("");
   const [qty, setQty] = useState("1");
   const [unit, setUnit] = useState("un");
   const [note, setNote] = useState("");
-  const [category, setCategory] = useState(null); // null = usa sugestão automática
+  const [category, setCategory] = useState(null);
   const [showCatPicker, setShowCatPicker] = useState(false);
 
-  // Categoria efetiva: manual escolhida ou sugestão pelo nome
   const effectiveCategory = category || (name.trim() ? guessCategory(name.trim()) : "outros");
   const catObj = CATEGORIES.find(c => c.id === effectiveCategory) || CATEGORIES[9];
   const isSuggested = !category && name.trim();
@@ -584,7 +606,6 @@ function AddItemModal({ onAdd, onClose }) {
         <div style={{ display:"flex",flexDirection:"column",gap:9 }}>
           <input style={inp} placeholder="Nome do item" value={name} onChange={e=>setName(e.target.value)} autoFocus onKeyDown={e=>e.key==="Enter"&&handle()} />
 
-          {/* Categoria (sugerida ou escolhida) - clicável para editar */}
           {name.trim() && (
             <button
               onClick={()=>setShowCatPicker(true)}
@@ -1163,7 +1184,7 @@ function ScreenSettings({ profile, onSave, onLogout }) {
 
         <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"14px",border:`1px solid ${C.linen}`,borderRadius:13 }}>
           <FeiraLogo size={20} color={C.stoneSoft} accent={C.stoneSoft} />
-          <p style={{ color:C.stoneSoft,fontSize:11,fontFamily:"'Fraunces',serif",fontStyle:"italic" }}>feira · v1.3</p>
+          <p style={{ color:C.stoneSoft,fontSize:11,fontFamily:"'Fraunces',serif",fontStyle:"italic" }}>feira · v1.4</p>
         </div>
       </div>
     </div>
@@ -1205,10 +1226,6 @@ export default function App() {
   const [activeList, setActiveList] = useState(null);
   const [tab, setTab] = useState("lists");
   const [savedMsg, setSavedMsg] = useState(false);
-
-  // Janela de desfazer silenciosa: backend permite reverter por 1 minuto
-  // Guarda timestamps de marcações recentes em memória
-  const [recentMarks, setRecentMarks] = useState({}); // { itemId: timestamp }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session }}) => {
@@ -1281,7 +1298,6 @@ export default function App() {
     if (data) setItems(prev => [...prev, data]);
   };
 
-  // Toggle simples (checkbox direto na lista)
   const toggleItem = async (item) => {
     const newDone = !item.done;
     const { data } = await supabase.from("items").update({
@@ -1303,11 +1319,7 @@ export default function App() {
     if (data) setItems(prev => prev.map(i => i.id===id ? data : i));
   };
 
-  // Marca como comprado em loja específica
-  // NOTA: a abertura da URL em nova aba é feita pelo ItemDetailModal de forma SÍNCRONA
-  // no clique do usuário, para não ser bloqueada por navegadores móveis.
   const markPurchased = async (item, storeId, price) => {
-    // Se já está marcado nesta loja, desmarca
     if (item.done && item.bought_at === storeId) {
       const { data } = await supabase.from("items").update({
         done: false, bought_at: null, bought_date: null, bought_price: null
@@ -1324,8 +1336,6 @@ export default function App() {
 
     if (data) {
       setItems(prev => prev.map(i => i.id===item.id ? data : i));
-      // Marca para janela silenciosa de desfazer (60s)
-      setRecentMarks(prev => ({ ...prev, [item.id]: Date.now() }));
       setTimeout(loadHistory, 500);
     }
   };
