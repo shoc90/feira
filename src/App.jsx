@@ -20,6 +20,27 @@ const C = {
   danger: "#C84A4A",
 };
 
+// Cores para avatares de membros (rotaciona por user_id)
+const AVATAR_COLORS = [
+  "#A8C97A", "#C8754A", "#7AAEC9", "#C97AB7",
+  "#C9B17A", "#7AC9A0", "#9C7AC9", "#C97A8B",
+];
+
+function avatarColorFor(userId) {
+  if (!userId) return C.stone;
+  const seed = userId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  return AVATAR_COLORS[seed % AVATAR_COLORS.length];
+}
+
+function initialFor(name, email) {
+  if (name && name.trim()) return name.trim()[0].toUpperCase();
+  if (email) return email[0].toUpperCase();
+  return "?";
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// CATEGORIAS
+// ═════════════════════════════════════════════════════════════════════
 const CATEGORIES = [
   { id:"hortifruti", label:"Hortifruti", emoji:"🥦", keywords:["alface","tomate","cenoura","batata","cebola","alho","limão","limao","laranja","banana","maçã","maca","uva","abacate","espinafre","brócolis","brocolis","couve","pepino","pimentão"] },
   { id:"laticinios", label:"Laticínios", emoji:"🥛", keywords:["leite","queijo","iogurte","manteiga","requeijão","requeijao","creme de leite","nata","ovos","ovo","ricota"] },
@@ -48,18 +69,26 @@ const STORES = [
 ];
 
 // ═════════════════════════════════════════════════════════════════════
-// HELPERS DE LINK PARA AS LOJAS
+// HELPERS
 // ═════════════════════════════════════════════════════════════════════
-// Helper: link de busca da Amazon com tag
 function amazonSearchUrl(name) {
   const tag = AFFILIATE.amazon || "";
   const q = encodeURIComponent(name);
   return tag ? `https://www.amazon.com.br/s?k=${q}&tag=${tag}` : `https://www.amazon.com.br/s?k=${q}`;
 }
 
-// Helper: link de busca do Mercado Livre (sem afiliado, política da empresa)
 function mlSearchUrl(name) {
   return `https://lista.mercadolivre.com.br/${encodeURIComponent(name)}`;
+}
+
+// Gera token único para link de convite (16 caracteres alfanuméricos)
+function generateInviteToken() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sem 0/O/I/1 (confunde)
+  let token = "";
+  for (let i = 0; i < 16; i++) {
+    token += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return token;
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -79,6 +108,51 @@ function FeiraLockup({ color = C.graphite, accent = C.sage, size = 1 }) {
     <div style={{ display:"flex", alignItems:"center", gap: 10*size }}>
       <FeiraLogo size={28*size} color={color} accent={accent} />
       <span style={{ fontFamily:"'Fraunces', Georgia, serif", fontSize: 28*size, fontWeight:500, color, letterSpacing:"-0.5px" }}>feira</span>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// AVATAR (círculo com inicial)
+// ═════════════════════════════════════════════════════════════════════
+function Avatar({ name, email, userId, size = 24, fontSize = 11 }) {
+  const bg = avatarColorFor(userId);
+  const initial = initialFor(name, email);
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: "50%",
+      background: bg, color: "#fff",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+      flexShrink: 0, border: `2px solid ${C.sand}`
+    }}>
+      {initial}
+    </div>
+  );
+}
+
+function AvatarStack({ members, max = 3, size = 22 }) {
+  const visible = members.slice(0, max);
+  const extra = members.length - max;
+  return (
+    <div style={{ display: "flex", alignItems: "center" }}>
+      {visible.map((m, i) => (
+        <div key={m.user_id} style={{ marginLeft: i === 0 ? 0 : -7 }}>
+          <Avatar name={m.name} email={m.email} userId={m.user_id} size={size} fontSize={10} />
+        </div>
+      ))}
+      {extra > 0 && (
+        <div style={{
+          marginLeft: -7,
+          width: size, height: size, borderRadius: "50%",
+          background: C.linen, color: C.stone,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 10, fontWeight: 600, border: `2px solid ${C.sand}`,
+          fontFamily: "'DM Sans',sans-serif"
+        }}>
+          +{extra}
+        </div>
+      )}
     </div>
   );
 }
@@ -113,7 +187,7 @@ function formatCep(v) {
 // ═════════════════════════════════════════════════════════════════════
 // AUTH SCREEN
 // ═════════════════════════════════════════════════════════════════════
-function AuthScreen() {
+function AuthScreen({ pendingInviteToken }) {
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -179,7 +253,7 @@ function AuthScreen() {
     setError(null);
     try {
       const { error: oerr } = await supabase.auth.signInWithOAuth({
-        provider, options: { redirectTo: window.location.origin }
+        provider, options: { redirectTo: window.location.origin + window.location.pathname + window.location.search }
       });
       if (oerr) throw oerr;
     } catch (e) { setError(e.message); }
@@ -212,6 +286,15 @@ function AuthScreen() {
         <h1 style={{ fontFamily:"'Fraunces',serif",fontSize:34,fontWeight:500,color:C.graphite,letterSpacing:"-0.8px",marginTop:18 }}>feira</h1>
         <p style={{ color:C.stone,fontSize:13,marginTop:6 }}>Sua feira, organizada.</p>
       </div>
+
+      {pendingInviteToken && (
+        <div style={{ background:`${C.sage}22`,border:`1px solid ${C.sage}55`,borderRadius:11,padding:"12px 14px",marginBottom:20,textAlign:"center" }}>
+          <p style={{ color:C.inkSoft,fontSize:13,lineHeight:1.5 }}>
+            👋 Você foi convidado para uma lista compartilhada!<br/>
+            <strong style={{ color:C.graphite }}>Faça login ou crie conta para aceitar.</strong>
+          </p>
+        </div>
+      )}
 
       <div style={{ display:"flex",gap:6,marginBottom:24,padding:4,background:C.linen,borderRadius:12 }}>
         <button onClick={()=>{setMode("login");setError(null)}} style={{ flex:1,padding:"10px",borderRadius:9,background:mode==="login"?C.sand:"transparent",color:mode==="login"?C.graphite:C.stone,border:"none",fontWeight:500,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:mode==="login"?"0 1px 3px rgba(0,0,0,0.06)":"none" }}>Entrar</button>
@@ -266,12 +349,6 @@ function AuthScreen() {
       <button onClick={mode==="login"?handleLogin:handleSignup} disabled={loading} style={{ width:"100%",padding:"14px",background:C.graphite,border:"none",borderRadius:12,color:C.sand,fontWeight:500,cursor:loading?"wait":"pointer",fontSize:15,marginTop:18,fontFamily:"'DM Sans',sans-serif",opacity:loading?0.7:1 }}>
         {loading?"Aguarde...":(mode==="login"?"Entrar":"Criar conta")}
       </button>
-
-      {mode==="signup" && (
-        <p style={{ color:C.stoneSoft,fontSize:11,textAlign:"center",marginTop:14,lineHeight:1.6 }}>
-          Ao criar conta você concorda com nossos termos.<br />Seus dados ficam seguros e privados.
-        </p>
-      )}
     </div>
   );
 }
@@ -316,9 +393,504 @@ function CategoryPicker({ current, onChange, onClose }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// ITEM DETAIL MODAL — ML e Amazon agora apenas como busca (sem API)
+// SHARE MODAL — gerenciar membros e convidar
 // ═════════════════════════════════════════════════════════════════════
-function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
+function ShareModal({ list, currentUserId, onClose }) {
+  const [members, setMembers] = useState([]);
+  const [invites, setInvites] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("members"); // members, invite_email, invite_link
+
+  // Convite por email
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("editor");
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState(null);
+
+  // Convite por link
+  const [linkRole, setLinkRole] = useState("editor");
+  const [generatedLink, setGeneratedLink] = useState(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const myRole = members.find(m => m.user_id === currentUserId)?.role;
+  const isOwner = myRole === "owner";
+
+  const loadMembers = async () => {
+    setLoading(true);
+    // Busca members + dados de profile (name, email)
+    const { data: mems } = await supabase
+      .from("list_members")
+      .select("user_id, role, joined_at")
+      .eq("list_id", list.id);
+
+    if (mems && mems.length > 0) {
+      const userIds = mems.map(m => m.user_id);
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, name, email")
+        .in("id", userIds);
+
+      const enriched = mems.map(m => {
+        const p = profiles?.find(pf => pf.id === m.user_id);
+        return { ...m, name: p?.name || "", email: p?.email || "" };
+      });
+      setMembers(enriched);
+    }
+
+    // Busca convites pendentes (não aceitos)
+    const { data: invs } = await supabase
+      .from("list_invites")
+      .select("id, email, token, role, expires_at, accepted_at, created_at")
+      .eq("list_id", list.id)
+      .is("accepted_at", null);
+    setInvites(invs || []);
+
+    setLoading(false);
+  };
+
+  useEffect(() => { loadMembers(); }, [list.id]);
+
+  const handleInviteByEmail = async () => {
+    const e = inviteEmail.trim().toLowerCase();
+    if (!e || !e.includes("@")) { setInviteMessage({ type: "error", text: "Email inválido" }); return; }
+    setInviteLoading(true); setInviteMessage(null);
+
+    // Verifica se já é membro
+    const { data: existingProfile } = await supabase
+      .from("profiles")
+      .select("id, name")
+      .eq("email", e)
+      .maybeSingle();
+
+    if (existingProfile) {
+      const alreadyMember = members.some(m => m.user_id === existingProfile.id);
+      if (alreadyMember) {
+        setInviteMessage({ type: "error", text: "Esta pessoa já é membro desta lista" });
+        setInviteLoading(false);
+        return;
+      }
+      // Adiciona direto como membro
+      const { error: errInsert } = await supabase
+        .from("list_members")
+        .insert({ list_id: list.id, user_id: existingProfile.id, role: inviteRole, invited_by: currentUserId });
+      if (errInsert) {
+        setInviteMessage({ type: "error", text: "Erro ao adicionar: " + errInsert.message });
+      } else {
+        setInviteMessage({ type: "success", text: `${existingProfile.name || e} foi adicionado(a) como ${roleLabel(inviteRole)}!` });
+        setInviteEmail("");
+        loadMembers();
+      }
+    } else {
+      // Pessoa não tem conta — cria convite pendente por email
+      const { error: errInvite } = await supabase
+        .from("list_invites")
+        .insert({ list_id: list.id, email: e, role: inviteRole, invited_by: currentUserId });
+      if (errInvite) {
+        setInviteMessage({ type: "error", text: "Erro: " + errInvite.message });
+      } else {
+        setInviteMessage({ type: "success", text: `Convite enviado para ${e}. Quando ela criar conta no feira com este email, será adicionada automaticamente.` });
+        setInviteEmail("");
+        loadMembers();
+      }
+    }
+    setInviteLoading(false);
+  };
+
+  const handleGenerateLink = async () => {
+    setInviteLoading(true);
+    const token = generateInviteToken();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h
+    const { error } = await supabase
+      .from("list_invites")
+      .insert({ list_id: list.id, token, role: linkRole, expires_at: expiresAt, invited_by: currentUserId });
+
+    if (error) {
+      setInviteMessage({ type: "error", text: "Erro: " + error.message });
+    } else {
+      const baseUrl = window.location.origin + window.location.pathname;
+      const link = `${baseUrl}?invite=${token}`;
+      setGeneratedLink(link);
+      loadMembers();
+    }
+    setInviteLoading(false);
+  };
+
+  const handleCopyLink = () => {
+    if (!generatedLink) return;
+    navigator.clipboard.writeText(generatedLink);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+
+  const handleChangeRole = async (userId, newRole) => {
+    await supabase
+      .from("list_members")
+      .update({ role: newRole })
+      .eq("list_id", list.id)
+      .eq("user_id", userId);
+    loadMembers();
+  };
+
+  const handleRemoveMember = async (userId, isMe = false) => {
+    const msg = isMe ? "Tem certeza que deseja sair desta lista?" : "Remover este membro da lista?";
+    if (!window.confirm(msg)) return;
+    await supabase
+      .from("list_members")
+      .delete()
+      .eq("list_id", list.id)
+      .eq("user_id", userId);
+    if (isMe) onClose();
+    else loadMembers();
+  };
+
+  const handleCancelInvite = async (inviteId) => {
+    if (!window.confirm("Cancelar este convite?")) return;
+    await supabase.from("list_invites").delete().eq("id", inviteId);
+    loadMembers();
+  };
+
+  return (
+    <Modal onClose={onClose} title={`Compartilhar "${list.name}"`}>
+      {/* Tabs */}
+      <div style={{ display:"flex",gap:6,marginBottom:18,padding:4,background:C.linen,borderRadius:11 }}>
+        <button onClick={()=>setActiveTab("members")} style={{ flex:1,padding:"8px",borderRadius:8,background:activeTab==="members"?C.sand:"transparent",color:activeTab==="members"?C.graphite:C.stone,border:"none",fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>
+          👥 Membros ({members.length})
+        </button>
+        {isOwner && (
+          <>
+            <button onClick={()=>setActiveTab("invite_email")} style={{ flex:1,padding:"8px",borderRadius:8,background:activeTab==="invite_email"?C.sand:"transparent",color:activeTab==="invite_email"?C.graphite:C.stone,border:"none",fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>
+              ✉️ Email
+            </button>
+            <button onClick={()=>setActiveTab("invite_link")} style={{ flex:1,padding:"8px",borderRadius:8,background:activeTab==="invite_link"?C.sand:"transparent",color:activeTab==="invite_link"?C.graphite:C.stone,border:"none",fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>
+              🔗 Link
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* TAB: MEMBROS */}
+      {activeTab === "members" && (
+        <div>
+          {loading ? (
+            <p style={{ color:C.stoneSoft,fontSize:13,textAlign:"center",padding:"20px" }}>Carregando...</p>
+          ) : (
+            <>
+              {members.map(m => (
+                <div key={m.user_id} style={{ display:"flex",alignItems:"center",gap:11,padding:"10px 0",borderBottom:`1px solid ${C.linen}` }}>
+                  <Avatar name={m.name} email={m.email} userId={m.user_id} size={36} fontSize={14} />
+                  <div style={{ flex:1,minWidth:0 }}>
+                    <p style={{ color:C.graphite,fontSize:14,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'DM Sans',sans-serif" }}>
+                      {m.name || m.email}{m.user_id === currentUserId ? " (você)" : ""}
+                    </p>
+                    <p style={{ color:C.stoneSoft,fontSize:11 }}>{m.email}</p>
+                  </div>
+                  {isOwner && m.user_id !== currentUserId ? (
+                    <select
+                      value={m.role}
+                      onChange={e=>handleChangeRole(m.user_id, e.target.value)}
+                      style={{ padding:"5px 8px",fontSize:11,background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:7,color:C.ink,fontFamily:"'DM Sans',sans-serif",cursor:"pointer" }}
+                    >
+                      <option value="owner">👑 Dono</option>
+                      <option value="editor">✏️ Editor</option>
+                      <option value="viewer">👀 Viewer</option>
+                    </select>
+                  ) : (
+                    <span style={{ fontSize:11,color:C.stone,padding:"5px 8px",background:C.linen,borderRadius:7 }}>
+                      {m.role === "owner" ? "👑 Dono" : m.role === "editor" ? "✏️ Editor" : "👀 Viewer"}
+                    </span>
+                  )}
+                  {(isOwner || m.user_id === currentUserId) && (
+                    <button onClick={()=>handleRemoveMember(m.user_id, m.user_id === currentUserId)} style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:4 }} title={m.user_id === currentUserId ? "Sair da lista" : "Remover membro"}>
+                      {m.user_id === currentUserId ? "🚪" : "✕"}
+                    </button>
+                  )}
+                </div>
+              ))}
+
+              {/* Convites pendentes */}
+              {invites.length > 0 && (
+                <>
+                  <p style={{ color:C.stone,fontSize:10,textTransform:"uppercase",letterSpacing:1.5,marginTop:18,marginBottom:8 }}>Convites pendentes</p>
+                  {invites.map(inv => (
+                    <div key={inv.id} style={{ display:"flex",alignItems:"center",gap:11,padding:"10px 0",borderBottom:`1px solid ${C.linen}` }}>
+                      <div style={{ width:36,height:36,borderRadius:"50%",background:C.linen,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16 }}>
+                        {inv.email ? "✉️" : "🔗"}
+                      </div>
+                      <div style={{ flex:1,minWidth:0 }}>
+                        <p style={{ color:C.graphite,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'DM Sans',sans-serif" }}>
+                          {inv.email || `Link: ${inv.token.slice(0, 8)}...`}
+                        </p>
+                        <p style={{ color:C.stoneSoft,fontSize:11 }}>
+                          {roleLabel(inv.role)} · {inv.expires_at ? `expira em ${formatExpiresIn(inv.expires_at)}` : "aguardando aceite"}
+                        </p>
+                      </div>
+                      {isOwner && (
+                        <button onClick={()=>handleCancelInvite(inv.id)} style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:4 }}>✕</button>
+                      )}
+                    </div>
+                  ))}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* TAB: CONVITE POR EMAIL */}
+      {activeTab === "invite_email" && isOwner && (
+        <div>
+          <p style={{ color:C.inkSoft,fontSize:13,marginBottom:14,lineHeight:1.5 }}>
+            Convide alguém pelo email. Se a pessoa já tiver conta no feira, ela é adicionada na hora. Caso contrário, o convite fica pendente até ela criar conta.
+          </p>
+          <p style={{ color:C.stone,fontSize:11,marginBottom:6,textTransform:"uppercase",letterSpacing:1 }}>Email</p>
+          <input
+            style={inp}
+            placeholder="email@exemplo.com"
+            value={inviteEmail}
+            onChange={e=>setInviteEmail(e.target.value)}
+            type="email"
+            autoFocus
+          />
+
+          <p style={{ color:C.stone,fontSize:11,marginTop:14,marginBottom:6,textTransform:"uppercase",letterSpacing:1 }}>Permissão</p>
+          <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+            <RoleOption value="editor" current={inviteRole} onChange={setInviteRole} title="✏️ Editor" desc="Adicionar, marcar como comprado e editar itens" />
+            <RoleOption value="viewer" current={inviteRole} onChange={setInviteRole} title="👀 Visualizador" desc="Apenas ver a lista, sem fazer alterações" />
+            <RoleOption value="owner" current={inviteRole} onChange={setInviteRole} title="👑 Dono" desc="Tudo, incluindo gerenciar membros e excluir lista" />
+          </div>
+
+          {inviteMessage && (
+            <div style={{
+              background: inviteMessage.type === "error" ? `${C.danger}15` : `${C.sage}22`,
+              border: `1px solid ${inviteMessage.type === "error" ? C.danger : C.sage}55`,
+              borderRadius:9, padding:"10px 12px", marginTop:14
+            }}>
+              <p style={{ color: inviteMessage.type === "error" ? C.danger : C.inkSoft, fontSize:13,lineHeight:1.5 }}>{inviteMessage.text}</p>
+            </div>
+          )}
+
+          <button
+            onClick={handleInviteByEmail}
+            disabled={inviteLoading}
+            style={{ width:"100%",padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:inviteLoading?"wait":"pointer",fontSize:14,marginTop:16,fontFamily:"'DM Sans',sans-serif",opacity:inviteLoading?0.7:1 }}
+          >
+            {inviteLoading ? "Aguarde..." : "Enviar convite"}
+          </button>
+        </div>
+      )}
+
+      {/* TAB: CONVITE POR LINK */}
+      {activeTab === "invite_link" && isOwner && (
+        <div>
+          <p style={{ color:C.inkSoft,fontSize:13,marginBottom:14,lineHeight:1.5 }}>
+            Gere um link para compartilhar via WhatsApp, SMS ou outra plataforma. Quem abrir o link e estiver com conta no feira será adicionado.
+          </p>
+
+          <p style={{ color:C.stone,fontSize:11,marginBottom:6,textTransform:"uppercase",letterSpacing:1 }}>Permissão</p>
+          <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+            <RoleOption value="editor" current={linkRole} onChange={setLinkRole} title="✏️ Editor" desc="Adicionar, marcar como comprado e editar itens" />
+            <RoleOption value="viewer" current={linkRole} onChange={setLinkRole} title="👀 Visualizador" desc="Apenas ver a lista, sem fazer alterações" />
+          </div>
+
+          {!generatedLink ? (
+            <button
+              onClick={handleGenerateLink}
+              disabled={inviteLoading}
+              style={{ width:"100%",padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:inviteLoading?"wait":"pointer",fontSize:14,marginTop:16,fontFamily:"'DM Sans',sans-serif",opacity:inviteLoading?0.7:1 }}
+            >
+              {inviteLoading ? "Gerando..." : "🔗 Gerar link de convite"}
+            </button>
+          ) : (
+            <div style={{ marginTop:16 }}>
+              <p style={{ color:C.sageDeep,fontSize:12,fontWeight:600,marginBottom:8 }}>✓ Link gerado! Válido por 24 horas.</p>
+              <div style={{ background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:9,padding:"12px",fontSize:11,color:C.ink,wordBreak:"break-all",fontFamily:"monospace",marginBottom:10 }}>
+                {generatedLink}
+              </div>
+              <button
+                onClick={handleCopyLink}
+                style={{ width:"100%",padding:"12px",background:linkCopied?C.sage:C.graphite,border:"none",borderRadius:10,color:linkCopied?C.graphite:C.sand,fontWeight:600,cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif" }}
+              >
+                {linkCopied ? "✓ Link copiado!" : "📋 Copiar link"}
+              </button>
+              <button
+                onClick={()=>setGeneratedLink(null)}
+                style={{ width:"100%",padding:"10px",background:"transparent",border:"none",color:C.stone,fontSize:12,cursor:"pointer",marginTop:6,fontFamily:"'DM Sans',sans-serif" }}
+              >
+                Gerar outro link
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function RoleOption({ value, current, onChange, title, desc }) {
+  const selected = current === value;
+  return (
+    <button
+      onClick={()=>onChange(value)}
+      style={{
+        padding:"10px 12px",borderRadius:9,
+        background:selected?`${C.sage}22`:C.linen,
+        border:`1px solid ${selected?C.sage:C.linenDim}`,
+        textAlign:"left",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",width:"100%"
+      }}
+    >
+      <p style={{ color:C.graphite,fontSize:13,fontWeight:500 }}>{title}</p>
+      <p style={{ color:C.stone,fontSize:11,marginTop:2,lineHeight:1.4 }}>{desc}</p>
+    </button>
+  );
+}
+
+function roleLabel(role) {
+  return role === "owner" ? "Dono" : role === "editor" ? "Editor" : "Visualizador";
+}
+
+function formatExpiresIn(iso) {
+  const ms = new Date(iso) - new Date();
+  if (ms <= 0) return "expirado";
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  if (hours < 1) return `${Math.floor(ms / (1000 * 60))} min`;
+  return `${hours}h`;
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// ACCEPT INVITE SCREEN — quando alguém abre o link de convite
+// ═════════════════════════════════════════════════════════════════════
+function AcceptInviteScreen({ token, currentUserId, onAccepted, onCancel }) {
+  const [loading, setLoading] = useState(true);
+  const [invite, setInvite] = useState(null);
+  const [list, setList] = useState(null);
+  const [error, setError] = useState(null);
+  const [accepting, setAccepting] = useState(false);
+
+  useEffect(() => {
+    loadInvite();
+  }, [token]);
+
+  const loadInvite = async () => {
+    setLoading(true); setError(null);
+    const { data: inv } = await supabase
+      .from("list_invites")
+      .select("*")
+      .eq("token", token)
+      .maybeSingle();
+
+    if (!inv) {
+      setError("Convite não encontrado ou já utilizado");
+      setLoading(false);
+      return;
+    }
+    if (inv.accepted_at) {
+      setError("Este convite já foi utilizado");
+      setLoading(false);
+      return;
+    }
+    if (inv.expires_at && new Date(inv.expires_at) < new Date()) {
+      setError("Este convite expirou");
+      setLoading(false);
+      return;
+    }
+
+    setInvite(inv);
+
+    const { data: l } = await supabase
+      .from("lists")
+      .select("id, name, icon")
+      .eq("id", inv.list_id)
+      .maybeSingle();
+    setList(l);
+
+    setLoading(false);
+  };
+
+  const handleAccept = async () => {
+    setAccepting(true);
+    // Verifica se já é membro
+    const { data: existing } = await supabase
+      .from("list_members")
+      .select("id")
+      .eq("list_id", invite.list_id)
+      .eq("user_id", currentUserId)
+      .maybeSingle();
+
+    if (!existing) {
+      const { error: errInsert } = await supabase
+        .from("list_members")
+        .insert({ list_id: invite.list_id, user_id: currentUserId, role: invite.role, invited_by: invite.invited_by });
+      if (errInsert) {
+        setError("Erro ao aceitar: " + errInsert.message);
+        setAccepting(false);
+        return;
+      }
+    }
+
+    // Marca convite como aceito
+    await supabase
+      .from("list_invites")
+      .update({ accepted_at: new Date().toISOString(), accepted_by: currentUserId })
+      .eq("id", invite.id);
+
+    onAccepted(invite.list_id);
+  };
+
+  if (loading) {
+    return (
+      <div style={{ minHeight:"100vh",background:C.sand,display:"flex",alignItems:"center",justifyContent:"center" }}>
+        <div style={{ width:40,height:40,border:`3px solid ${C.linenDim}`,borderTop:`3px solid ${C.sage}`,borderRadius:"50%",animation:"spin 0.8s linear infinite" }} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight:"100vh",background:C.sand,fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",padding:"60px 22px 40px",textAlign:"center" }}>
+      <FeiraLogo size={48} />
+      <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:24,fontWeight:500,color:C.graphite,marginTop:24,marginBottom:14 }}>Convite</h2>
+
+      {error ? (
+        <>
+          <div style={{ background:`${C.danger}15`,border:`1px solid ${C.danger}55`,borderRadius:11,padding:"14px",marginBottom:16 }}>
+            <p style={{ color:C.danger,fontSize:14 }}>{error}</p>
+          </div>
+          <button onClick={onCancel} style={{ padding:"12px 24px",background:C.graphite,color:C.sand,border:"none",borderRadius:11,fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>
+            Voltar para o app
+          </button>
+        </>
+      ) : (
+        <>
+          <p style={{ color:C.inkSoft,fontSize:14,lineHeight:1.6,marginBottom:20 }}>
+            Você foi convidado para participar da lista:
+          </p>
+          <div style={{ background:C.linen,borderRadius:14,padding:"20px",marginBottom:20 }}>
+            <div style={{ fontSize:36,marginBottom:8 }}>{list?.icon || "🛒"}</div>
+            <h3 style={{ fontFamily:"'Fraunces',serif",fontSize:20,fontWeight:500,color:C.graphite,marginBottom:6 }}>
+              {list?.name || "Lista compartilhada"}
+            </h3>
+            <p style={{ color:C.stone,fontSize:12 }}>
+              Permissão: <strong>{roleLabel(invite.role)}</strong>
+            </p>
+          </div>
+
+          <div style={{ display:"flex",gap:8 }}>
+            <button onClick={onCancel} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>
+              Recusar
+            </button>
+            <button onClick={handleAccept} disabled={accepting} style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:accepting?"wait":"pointer",fontSize:15,fontFamily:"'DM Sans',sans-serif",opacity:accepting?0.7:1 }}>
+              {accepting ? "Aguarde..." : "Aceitar e entrar"}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// ITEM DETAIL MODAL
+// ═════════════════════════════════════════════════════════════════════
+function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased, canEdit }) {
   const activeStores = STORES.filter(s => enabledStores.includes(s.id));
   const [tab, setTab] = useState(activeStores[0]?.id || "ml");
 
@@ -332,10 +904,9 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
     return num.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  // Marca + abre URL (síncrono pra não ser bloqueado por mobile)
   const handleMarkAndOpen = (productUrl, storeId) => {
     try { window.open(productUrl, "_blank", "noopener,noreferrer"); } catch {}
-    onMarkPurchased(storeId, null);
+    if (canEdit) onMarkPurchased(storeId, null);
     onClose();
   };
 
@@ -353,7 +924,7 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
   ];
 
   let footer;
-  if (tab === "store") {
+  if (tab === "store" && canEdit) {
     footer = (
       <div style={{ display:"flex",gap:8 }}>
         <button onClick={onClose} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>Voltar</button>
@@ -363,7 +934,7 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
   } else {
     footer = (
       <button onClick={onClose} style={{ width:"100%",padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>
-        Voltar sem escolher
+        Voltar
       </button>
     );
   }
@@ -391,22 +962,25 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
         ))}
       </div>
 
-      {/* ─── ABA LOJA FÍSICA ─── */}
       {tab === "store" && (
         <div>
+          {!canEdit && (
+            <div style={{ background:`${C.terracota}15`,border:`1px solid ${C.terracota}55`,borderRadius:9,padding:"10px 12px",marginBottom:14 }}>
+              <p style={{ color:C.terracota,fontSize:13 }}>Você não tem permissão para editar esta lista.</p>
+            </div>
+          )}
           <p style={{ color:C.inkSoft,fontSize:13,marginBottom:14,lineHeight:1.5 }}>
             Digite quanto você pagou por este item na loja física.
           </p>
           <p style={{ color:C.stone,fontSize:11,marginBottom:6,textTransform:"uppercase",letterSpacing:1 }}>Valor pago (R$)</p>
           <input
-            style={{ ...inp, fontSize:22, fontWeight:500, fontFamily:"'Fraunces',serif" }}
+            style={{ ...inp, fontSize:22, fontWeight:500, fontFamily:"'Fraunces',serif", opacity: canEdit ? 1 : 0.5 }}
             placeholder="0,00"
             value={storePrice}
-            onChange={e => setStorePrice(formatBRL(e.target.value))}
-            inputMode="numeric"
-            pattern="[0-9]*"
-            type="tel"
-            autoFocus
+            onChange={e => canEdit && setStorePrice(formatBRL(e.target.value))}
+            inputMode="numeric" pattern="[0-9]*" type="tel"
+            disabled={!canEdit}
+            autoFocus={canEdit}
           />
           {storeError && (
             <div style={{ background:`${C.danger}15`,border:`1px solid ${C.danger}55`,borderRadius:9,padding:"10px 12px",marginTop:12 }}>
@@ -416,60 +990,39 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
         </div>
       )}
 
-      {/* ─── ABA AMAZON ─── */}
       {tab === "amazon" && (
         <div>
           <div style={{ background:C.linen,borderRadius:14,border:`1px solid ${C.linenDim}`,padding:"18px",textAlign:"center",marginBottom:12 }}>
             <div style={{ fontSize:42, marginBottom:8 }}>📦</div>
-            <h4 style={{ fontFamily:"'Fraunces',serif",fontSize:18,fontWeight:500,color:C.graphite,marginBottom:6 }}>
-              Buscar na Amazon
-            </h4>
+            <h4 style={{ fontFamily:"'Fraunces',serif",fontSize:18,fontWeight:500,color:C.graphite,marginBottom:6 }}>Buscar na Amazon</h4>
             <p style={{ color:C.inkSoft,fontSize:13,lineHeight:1.5,marginBottom:14 }}>
-              Veja todas as opções disponíveis para <strong>{item.name}</strong> direto no site da Amazon, com preços atualizados, frete e prazo de entrega.
+              Veja todas as opções para <strong>{item.name}</strong> direto no site da Amazon.
             </p>
             <button
               onClick={()=>handleMarkAndOpen(amazonSearchUrl(item.name), "amazon")}
-              style={{
-                width:"100%", padding:"13px", borderRadius:10, fontWeight:600, fontSize:14,
-                background:C.sage, color:C.graphite, border:"none", cursor:"pointer",
-                fontFamily:"'DM Sans',sans-serif"
-              }}
+              style={{ width:"100%", padding:"13px", borderRadius:10, fontWeight:600, fontSize:14, background:C.sage, color:C.graphite, border:"none", cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
             >
-              🔍 Buscar e marcar como comprado
+              {canEdit ? "🔍 Buscar e marcar como comprado" : "🔍 Buscar na Amazon"}
             </button>
           </div>
-          <p style={{ color:C.stoneSoft,fontSize:10,textAlign:"center",fontStyle:"italic",lineHeight:1.5 }}>
-            Os preços da Amazon são exibidos somente no site oficial.<br/>
-            Ao clicar, abrimos a busca em nova aba.
-          </p>
         </div>
       )}
 
-      {/* ─── ABA MERCADO LIVRE — agora também só busca ─── */}
       {tab === "ml" && (
         <div>
           <div style={{ background:C.linen,borderRadius:14,border:`1px solid ${C.linenDim}`,padding:"18px",textAlign:"center",marginBottom:12 }}>
             <div style={{ fontSize:42, marginBottom:8 }}>🛍️</div>
-            <h4 style={{ fontFamily:"'Fraunces',serif",fontSize:18,fontWeight:500,color:C.graphite,marginBottom:6 }}>
-              Buscar no Mercado Livre
-            </h4>
+            <h4 style={{ fontFamily:"'Fraunces',serif",fontSize:18,fontWeight:500,color:C.graphite,marginBottom:6 }}>Buscar no Mercado Livre</h4>
             <p style={{ color:C.inkSoft,fontSize:13,lineHeight:1.5,marginBottom:14 }}>
-              Veja todas as opções disponíveis para <strong>{item.name}</strong> direto no site do Mercado Livre, com preços atualizados, frete e prazo de entrega.
+              Veja todas as opções para <strong>{item.name}</strong> direto no site.
             </p>
             <button
               onClick={()=>handleMarkAndOpen(mlSearchUrl(item.name), "ml")}
-              style={{
-                width:"100%", padding:"13px", borderRadius:10, fontWeight:600, fontSize:14,
-                background:C.sage, color:C.graphite, border:"none", cursor:"pointer",
-                fontFamily:"'DM Sans',sans-serif"
-              }}
+              style={{ width:"100%", padding:"13px", borderRadius:10, fontWeight:600, fontSize:14, background:C.sage, color:C.graphite, border:"none", cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
             >
-              🔍 Buscar e marcar como comprado
+              {canEdit ? "🔍 Buscar e marcar como comprado" : "🔍 Buscar no ML"}
             </button>
           </div>
-          <p style={{ color:C.stoneSoft,fontSize:10,textAlign:"center",fontStyle:"italic",lineHeight:1.5 }}>
-            Ao clicar, abrimos a busca em nova aba no site oficial.
-          </p>
         </div>
       )}
     </Modal>
@@ -479,7 +1032,7 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased }) {
 // ═════════════════════════════════════════════════════════════════════
 // ITEM ROW
 // ═════════════════════════════════════════════════════════════════════
-function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete }) {
+function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete, canEdit }) {
   const [showCatPicker, setShowCatPicker] = useState(false);
   const cat = CATEGORIES.find(c => c.id === item.category) || CATEGORIES[9];
 
@@ -496,13 +1049,14 @@ function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete }) {
         onClick={onOpen}
       >
         <button
-          onClick={(e)=>{ e.stopPropagation(); onToggle(); }}
+          onClick={(e)=>{ e.stopPropagation(); if (canEdit) onToggle(); }}
+          disabled={!canEdit}
           style={{
             width:26,height:26,borderRadius:7,flexShrink:0,
             background:item.done?C.sage:"transparent",
             border:`1.5px solid ${item.done?C.sage:C.stoneSoft}`,
-            cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",
-            color:C.graphite,fontWeight:700,transition:"all 0.2s"
+            cursor:canEdit?"pointer":"not-allowed",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",
+            color:C.graphite,fontWeight:700,transition:"all 0.2s",opacity:canEdit?1:0.5
           }}
         >{item.done?"✓":""}</button>
 
@@ -515,19 +1069,22 @@ function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete }) {
         </div>
 
         <button
-          onClick={(e)=>{ e.stopPropagation(); setShowCatPicker(true); }}
-          title="Editar categoria"
+          onClick={(e)=>{ e.stopPropagation(); if (canEdit) setShowCatPicker(true); }}
+          disabled={!canEdit}
+          title="Categoria"
           style={{
             background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:8,
-            width:34,height:34,fontSize:16,cursor:"pointer",
+            width:34,height:34,fontSize:16,cursor:canEdit?"pointer":"default",
             display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0
           }}
         >{cat.emoji}</button>
 
-        <button
-          onClick={(e)=>{ e.stopPropagation(); onDelete(); }}
-          style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:"0 2px" }}
-        >✕</button>
+        {canEdit && (
+          <button
+            onClick={(e)=>{ e.stopPropagation(); onDelete(); }}
+            style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:"0 2px" }}
+          >✕</button>
+        )}
       </div>
 
       {showCatPicker && <CategoryPicker current={item.category} onChange={onCategoryChange} onClose={()=>setShowCatPicker(false)} />}
@@ -602,11 +1159,7 @@ function AddItemModal({ onAdd, onClose }) {
       </Modal>
 
       {showCatPicker && (
-        <CategoryPicker
-          current={effectiveCategory}
-          onChange={(cid)=>setCategory(cid)}
-          onClose={()=>setShowCatPicker(false)}
-        />
+        <CategoryPicker current={effectiveCategory} onChange={(cid)=>setCategory(cid)} onClose={()=>setShowCatPicker(false)} />
       )}
     </>
   );
@@ -645,7 +1198,7 @@ function AddListModal({ onAdd, onClose }) {
 // ═════════════════════════════════════════════════════════════════════
 // SCREEN: LISTS
 // ═════════════════════════════════════════════════════════════════════
-function ScreenLists({ lists, listCounts, onOpen, onAdd, onDelete, profile }) {
+function ScreenLists({ lists, listCounts, listMembers, onOpen, onAdd, onDelete, profile, currentUserId }) {
   const [showAdd, setShowAdd] = useState(false);
   return (
     <div style={{ paddingBottom:84 }}>
@@ -662,17 +1215,30 @@ function ScreenLists({ lists, listCounts, onOpen, onAdd, onDelete, profile }) {
         {lists.map((list,idx) => {
           const counts = listCounts[list.id] || { done:0, total:0 };
           const pct = counts.total ? Math.round((counts.done/counts.total)*100) : 0;
+          const members = listMembers[list.id] || [];
+          const isShared = members.length > 1;
+          const myRole = members.find(m => m.user_id === currentUserId)?.role;
+          const isOwner = myRole === "owner";
+
           return (
             <div key={list.id} style={{ animation:`fadeIn 0.3s ease ${idx*0.05}s both` }}>
               <div onClick={()=>onOpen(list)} style={{ background:"#FAF8F4",borderRadius:16,padding:"16px",cursor:"pointer",border:`1px solid ${C.linen}` }}>
                 <div style={{ display:"flex",alignItems:"center",gap:13 }}>
                   <div style={{ width:46,height:46,borderRadius:12,background:C.linen,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>{list.icon}</div>
                   <div style={{ flex:1,minWidth:0 }}>
-                    <p style={{ fontWeight:500,fontSize:16,marginBottom:3,color:C.graphite,fontFamily:"'DM Sans',sans-serif" }}>{list.name}</p>
-                    <p style={{ color:C.stone,fontSize:12 }}>{counts.total===0?"Lista vazia":`${counts.done}/${counts.total} comprados`}</p>
+                    <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:3 }}>
+                      <p style={{ fontWeight:500,fontSize:16,color:C.graphite,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{list.name}</p>
+                      {isShared && <AvatarStack members={members} max={3} size={20} />}
+                    </div>
+                    <p style={{ color:C.stone,fontSize:12 }}>
+                      {counts.total===0?"Lista vazia":`${counts.done}/${counts.total} comprados`}
+                      {!isOwner && myRole && <span> · {roleLabel(myRole)}</span>}
+                    </p>
                     {counts.total>0 && <div style={{ height:3,background:C.linen,borderRadius:3,marginTop:7 }}><div style={{ height:"100%",width:`${pct}%`,background:C.sage,borderRadius:3,transition:"width 0.4s" }} /></div>}
                   </div>
-                  <button onClick={e=>{e.stopPropagation();onDelete(list.id)}} style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:6 }}>✕</button>
+                  {isOwner && (
+                    <button onClick={e=>{e.stopPropagation();onDelete(list.id)}} style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:6 }}>✕</button>
+                  )}
                 </div>
               </div>
             </div>
@@ -690,11 +1256,25 @@ function ScreenLists({ lists, listCounts, onOpen, onAdd, onDelete, profile }) {
 // ═════════════════════════════════════════════════════════════════════
 // SCREEN: LIST DETAIL
 // ═════════════════════════════════════════════════════════════════════
-function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onToggleItem, onDeleteItem, onChangeCategory, onMarkPurchased, onToggleAll }) {
+function ScreenListDetail({ list, items, members, currentUserId, onBack, enabledStores, onAddItem, onToggleItem, onDeleteItem, onChangeCategory, onMarkPurchased, onToggleAll, onRefresh }) {
   const [showAdd, setShowAdd] = useState(false);
   const [openItem, setOpenItem] = useState(null);
+  const [showShare, setShowShare] = useState(false);
   const [filter, setFilter] = useState("todos");
   const [sortBy, setSortBy] = useState("categoria");
+
+  const myRole = members.find(m => m.user_id === currentUserId)?.role;
+  const canEdit = myRole === "owner" || myRole === "editor";
+  const isOwner = myRole === "owner";
+  const isShared = members.length > 1;
+
+  // Polling para sincronização (a cada 12 segundos)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      onRefresh();
+    }, 12000);
+    return () => clearInterval(interval);
+  }, [onRefresh]);
 
   const done = items.filter(i=>i.done).length, total = items.length;
   const progress = total ? Math.round((done/total)*100) : 0;
@@ -748,9 +1328,22 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
         <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:13 }}>
           <div style={{ width:46,height:46,borderRadius:12,background:C.sand,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24 }}>{list.icon}</div>
           <div style={{ flex:1,minWidth:0 }}>
-            <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:24,fontWeight:500,color:C.graphite,letterSpacing:"-0.3px" }}>{list.name}</h2>
-            <p style={{ color:C.stone,fontSize:12,marginTop:1 }}>{done}/{total} comprados</p>
+            <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+              <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:24,fontWeight:500,color:C.graphite,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{list.name}</h2>
+              {isShared && <AvatarStack members={members} max={3} size={22} />}
+            </div>
+            <p style={{ color:C.stone,fontSize:12,marginTop:1 }}>
+              {done}/{total} comprados
+              {!isOwner && myRole && ` · ${roleLabel(myRole)}`}
+            </p>
           </div>
+          <button
+            onClick={()=>setShowShare(true)}
+            title="Compartilhar lista"
+            style={{ background:C.sand,border:`1px solid ${C.linenDim}`,borderRadius:10,padding:"8px 11px",cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:5 }}
+          >
+            👥 {isShared ? members.length : ""}
+          </button>
         </div>
         {total>0 && <div style={{ height:4,background:C.linenDim,borderRadius:4 }}><div style={{ height:"100%",width:`${progress}%`,borderRadius:4,background:C.sage,transition:"width 0.5s" }} /></div>}
       </div>
@@ -760,28 +1353,20 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
           <select
             value={sortBy}
             onChange={e=>setSortBy(e.target.value)}
-            style={{
-              flex:1, padding:"7px 10px", background:C.linen, border:`1px solid ${C.linenDim}`,
-              borderRadius:9, color:C.ink, fontSize:12, fontFamily:"'DM Sans',sans-serif",
-              outline:"none", cursor:"pointer"
-            }}
+            style={{ flex:1, padding:"7px 10px", background:C.linen, border:`1px solid ${C.linenDim}`, borderRadius:9, color:C.ink, fontSize:12, fontFamily:"'DM Sans',sans-serif", outline:"none", cursor:"pointer" }}
           >
             <option value="categoria">📂 Por categoria</option>
             <option value="ordem">↕ Ordem de criação</option>
             <option value="alfabetica">🔤 Ordem alfabética</option>
           </select>
-          <button
-            onClick={()=>onToggleAll(!allDone)}
-            style={{
-              padding:"7px 13px", borderRadius:9, flexShrink:0,
-              background: allDone ? C.linen : C.graphite,
-              border:`1px solid ${allDone ? C.linenDim : C.graphite}`,
-              color: allDone ? C.ink : C.sand,
-              fontSize:12, fontWeight:500, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"
-            }}
-          >
-            {allDone ? "Desmarcar todos" : "Marcar todos"}
-          </button>
+          {canEdit && (
+            <button
+              onClick={()=>onToggleAll(!allDone)}
+              style={{ padding:"7px 13px", borderRadius:9, flexShrink:0, background: allDone ? C.linen : C.graphite, border:`1px solid ${allDone ? C.linenDim : C.graphite}`, color: allDone ? C.ink : C.sand, fontSize:12, fontWeight:500, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
+            >
+              {allDone ? "Desmarcar todos" : "Marcar todos"}
+            </button>
+          )}
         </div>
       )}
 
@@ -802,6 +1387,7 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
           <ItemRow
             key={item.id}
             item={item}
+            canEdit={canEdit}
             onToggle={()=>onToggleItem(item)}
             onOpen={()=>setOpenItem(item)}
             onDelete={()=>onDeleteItem(item.id)}
@@ -810,17 +1396,21 @@ function ScreenListDetail({ list, items, onBack, enabledStores, onAddItem, onTog
         ))}
       </div>
 
-      <button onClick={()=>setShowAdd(true)} style={{ position:"fixed",bottom:80,right:16,width:54,height:54,borderRadius:"50%",background:C.sage,border:"none",fontSize:26,cursor:"pointer",boxShadow:`0 6px 20px ${C.sage}66, 0 2px 6px rgba(26,31,42,0.15)`,display:"flex",alignItems:"center",justifyContent:"center",color:C.graphite,fontWeight:600,zIndex:100 }}>+</button>
+      {canEdit && (
+        <button onClick={()=>setShowAdd(true)} style={{ position:"fixed",bottom:80,right:16,width:54,height:54,borderRadius:"50%",background:C.sage,border:"none",fontSize:26,cursor:"pointer",boxShadow:`0 6px 20px ${C.sage}66, 0 2px 6px rgba(26,31,42,0.15)`,display:"flex",alignItems:"center",justifyContent:"center",color:C.graphite,fontWeight:600,zIndex:100 }}>+</button>
+      )}
 
       {showAdd && <AddItemModal onAdd={async item=>{await onAddItem(item);setShowAdd(false)}} onClose={()=>setShowAdd(false)} />}
       {openItem && (
         <ItemDetailModal
           item={openItem}
           enabledStores={enabledStores}
+          canEdit={canEdit}
           onClose={()=>setOpenItem(null)}
           onMarkPurchased={(storeId, price)=>onMarkPurchased(openItem, storeId, price)}
         />
       )}
+      {showShare && <ShareModal list={list} currentUserId={currentUserId} onClose={()=>{setShowShare(false); onRefresh();}} />}
     </div>
   );
 }
@@ -834,15 +1424,8 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
 
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"}) : "—";
-
-  const labelFor = (storeId) => {
-    if (storeId === "store") return "Loja física";
-    return STORES.find(s=>s.id===storeId)?.label || "—";
-  };
-  const emojiFor = (storeId) => {
-    if (storeId === "store") return "🏪";
-    return STORES.find(s=>s.id===storeId)?.emoji || "🛒";
-  };
+  const labelFor = (storeId) => storeId === "store" ? "Loja física" : (STORES.find(s=>s.id===storeId)?.label || "—");
+  const emojiFor = (storeId) => storeId === "store" ? "🏪" : (STORES.find(s=>s.id===storeId)?.emoji || "🛒");
 
   const filteredAndSorted = (() => {
     let result = storeFilter==="all" ? history : history.filter(i=>i.store===storeFilter);
@@ -859,34 +1442,13 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
     return [...result].sort(sortFn);
   })();
 
-  const toggleSelect = (id) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
+  const toggleSelect = (id) => setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const visibleIds = filteredAndSorted.map(i => i.id);
   const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
-
   const toggleAll = () => {
-    if (allSelected) {
-      setSelectedIds(prev => {
-        const next = new Set(prev);
-        visibleIds.forEach(id => next.delete(id));
-        return next;
-      });
-    } else {
-      setSelectedIds(prev => {
-        const next = new Set(prev);
-        visibleIds.forEach(id => next.add(id));
-        return next;
-      });
-    }
+    if (allSelected) setSelectedIds(prev => { const next = new Set(prev); visibleIds.forEach(id => next.delete(id)); return next; });
+    else setSelectedIds(prev => { const next = new Set(prev); visibleIds.forEach(id => next.add(id)); return next; });
   };
-
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0) return;
     if (!window.confirm(`Apagar ${selectedIds.size} ${selectedIds.size === 1 ? "registro" : "registros"} do histórico?`)) return;
@@ -905,29 +1467,12 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
 
       {history.length > 0 && (
         <div style={{ display:"flex",gap:8,padding:"0 14px 10px",alignItems:"center" }}>
-          <select
-            value={sortBy}
-            onChange={e=>setSortBy(e.target.value)}
-            style={{
-              flex:1, padding:"7px 10px", background:C.linen, border:`1px solid ${C.linenDim}`,
-              borderRadius:9, color:C.ink, fontSize:12, fontFamily:"'DM Sans',sans-serif",
-              outline:"none", cursor:"pointer"
-            }}
-          >
+          <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{ flex:1, padding:"7px 10px", background:C.linen, border:`1px solid ${C.linenDim}`, borderRadius:9, color:C.ink, fontSize:12, fontFamily:"'DM Sans',sans-serif", outline:"none", cursor:"pointer" }}>
             <option value="data">📅 Data de compra</option>
             <option value="alfabetica">🔤 Ordem alfabética</option>
             <option value="categoria">📂 Por categoria</option>
           </select>
-          <button
-            onClick={toggleAll}
-            style={{
-              padding:"7px 13px", borderRadius:9, flexShrink:0,
-              background: allSelected ? C.linen : C.graphite,
-              border:`1px solid ${allSelected ? C.linenDim : C.graphite}`,
-              color: allSelected ? C.ink : C.sand,
-              fontSize:12, fontWeight:500, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"
-            }}
-          >
+          <button onClick={toggleAll} style={{ padding:"7px 13px", borderRadius:9, flexShrink:0, background: allSelected ? C.linen : C.graphite, border:`1px solid ${allSelected ? C.linenDim : C.graphite}`, color: allSelected ? C.ink : C.sand, fontSize:12, fontWeight:500, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
             {allSelected ? "Desmarcar todos" : "Selecionar todos"}
           </button>
         </div>
@@ -949,22 +1494,8 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
           filteredAndSorted.map((item)=>{
             const isSelected = selectedIds.has(item.id);
             return (
-              <div
-                key={item.id}
-                style={{
-                  background: isSelected ? `${C.sage}22` : "#FAF8F4",
-                  borderRadius:13, padding:"13px 14px", marginBottom:8,
-                  border:`1px solid ${isSelected ? C.sage : C.linen}`,
-                  display:"flex", alignItems:"center", gap:12,
-                  transition:"background 0.15s"
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  onChange={()=>toggleSelect(item.id)}
-                  style={{ width:18,height:18,accentColor:C.sage,cursor:"pointer",margin:0,flexShrink:0 }}
-                />
+              <div key={item.id} style={{ background: isSelected ? `${C.sage}22` : "#FAF8F4", borderRadius:13, padding:"13px 14px", marginBottom:8, border:`1px solid ${isSelected ? C.sage : C.linen}`, display:"flex", alignItems:"center", gap:12, transition:"background 0.15s" }}>
+                <input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(item.id)} style={{ width:18,height:18,accentColor:C.sage,cursor:"pointer",margin:0,flexShrink:0 }} />
                 <div style={{ width:38,height:38,borderRadius:10,background:C.linen,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>{emojiFor(item.store)}</div>
                 <div style={{ flex:1,minWidth:0 }}>
                   <p style={{ fontWeight:500,fontSize:14,color:C.graphite,marginBottom:2,fontFamily:"'DM Sans',sans-serif" }}>{item.item_name}</p>
@@ -973,11 +1504,7 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
                     {item.price ? ` · R$ ${Number(item.price).toFixed(2).replace(".", ",")}` : ""}
                   </p>
                 </div>
-                <button
-                  onClick={()=>{ if (window.confirm("Apagar este registro do histórico?")) onDeleteRecord(item.id); }}
-                  style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:6,flexShrink:0 }}
-                  title="Apagar registro"
-                >✕</button>
+                <button onClick={()=>{ if (window.confirm("Apagar este registro do histórico?")) onDeleteRecord(item.id); }} style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:6,flexShrink:0 }} title="Apagar">✕</button>
               </div>
             );
           })
@@ -985,28 +1512,11 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
       </div>
 
       {hasSelection && (
-        <div style={{
-          position:"fixed", bottom:56, left:"50%", transform:"translateX(-50%)",
-          width:"100%", maxWidth:480, padding:"12px 16px",
-          background:C.sand, borderTop:`1px solid ${C.linen}`,
-          display:"flex", alignItems:"center", justifyContent:"space-between", gap:12,
-          zIndex:150,
-          boxShadow:"0 -4px 20px rgba(0,0,0,0.06)"
-        }}>
+        <div style={{ position:"fixed", bottom:56, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, padding:"12px 16px", background:C.sand, borderTop:`1px solid ${C.linen}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, zIndex:150, boxShadow:"0 -4px 20px rgba(0,0,0,0.06)" }}>
           <p style={{ color:C.ink, fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
             <strong>{selectedIds.size}</strong> {selectedIds.size === 1 ? "selecionado" : "selecionados"}
           </p>
-          <button
-            onClick={handleDeleteSelected}
-            disabled={selectedIds.size === 0}
-            style={{
-              padding:"10px 18px", borderRadius:11,
-              background: selectedIds.size === 0 ? C.linen : C.danger,
-              border:"none", color: selectedIds.size === 0 ? C.stoneSoft : "#fff",
-              fontSize:13, fontWeight:600, cursor: selectedIds.size === 0 ? "not-allowed" : "pointer",
-              fontFamily:"'DM Sans',sans-serif"
-            }}
-          >
+          <button onClick={handleDeleteSelected} disabled={selectedIds.size === 0} style={{ padding:"10px 18px", borderRadius:11, background: selectedIds.size === 0 ? C.linen : C.danger, border:"none", color: selectedIds.size === 0 ? C.stoneSoft : "#fff", fontSize:13, fontWeight:600, cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", fontFamily:"'DM Sans',sans-serif" }}>
             Apagar selecionados
           </button>
         </div>
@@ -1021,12 +1531,7 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
 function ScreenSettings({ profile, onSave, onLogout }) {
   const [name, setName] = useState(profile?.name||"");
   const [cep, setCep] = useState(profile?.cep||"");
-  const [cepInfo, setCepInfo] = useState(profile?.city ? {
-    logradouro: profile.street || "",
-    bairro: profile.neighborhood || "",
-    localidade: profile.city,
-    uf: profile.state || ""
-  } : null);
+  const [cepInfo, setCepInfo] = useState(profile?.city ? { logradouro: profile.street || "", bairro: profile.neighborhood || "", localidade: profile.city, uf: profile.state || "" } : null);
   const [cepLoading, setCepLoading] = useState(false);
   const [maxDays, setMaxDays] = useState(profile?.max_delivery_days||7);
   const [enabledStores, setEnabledStores] = useState(profile?.enabled_stores||["ml","amazon"]);
@@ -1043,22 +1548,11 @@ function ScreenSettings({ profile, onSave, onLogout }) {
       const info = await fetchCep(digits);
       setCepInfo(info);
       setCepLoading(false);
-    } else {
-      setCepInfo(null);
-    }
+    } else setCepInfo(null);
   };
 
   const handleSave = () => {
-    onSave({
-      name, cep,
-      city: cepInfo?.localidade || null,
-      state: cepInfo?.uf || null,
-      street: cepInfo?.logradouro || null,
-      neighborhood: cepInfo?.bairro || null,
-      max_delivery_days: maxDays,
-      enabled_stores: enabledStores,
-      notifications_enabled: notifications
-    });
+    onSave({ name, cep, city: cepInfo?.localidade || null, state: cepInfo?.uf || null, street: cepInfo?.logradouro || null, neighborhood: cepInfo?.bairro || null, max_delivery_days: maxDays, enabled_stores: enabledStores, notifications_enabled: notifications });
   };
 
   const Section = ({ title, children }) => (
@@ -1098,15 +1592,7 @@ function ScreenSettings({ profile, onSave, onLogout }) {
           </div>
           <div style={{ padding:"14px 16px" }}>
             <p style={{ color:C.stone,fontSize:11,marginBottom:6 }}>CEP</p>
-            <input
-              style={inp}
-              placeholder="00000-000"
-              value={cep}
-              onChange={e=>handleCepChange(e.target.value)}
-              inputMode="numeric"
-              pattern="[0-9]*"
-              type="tel"
-            />
+            <input style={inp} placeholder="00000-000" value={cep} onChange={e=>handleCepChange(e.target.value)} inputMode="numeric" pattern="[0-9]*" type="tel" />
             {cepLoading && <p style={{ color:C.stoneSoft,fontSize:12,marginTop:8 }}>Buscando endereço...</p>}
             {cepInfo && (
               <div style={{ background:`${C.sage}22`,border:`1px solid ${C.sage}55`,borderRadius:9,padding:"10px 12px",marginTop:10 }}>
@@ -1144,12 +1630,11 @@ function ScreenSettings({ profile, onSave, onLogout }) {
         </Section>
 
         <button onClick={handleSave} style={{ width:"100%",padding:"14px",background:C.graphite,border:"none",borderRadius:13,color:C.sand,fontWeight:500,cursor:"pointer",fontSize:15,marginBottom:10,fontFamily:"'DM Sans',sans-serif" }}>Salvar configurações</button>
-
         <button onClick={onLogout} style={{ width:"100%",padding:"13px",background:"transparent",border:`1px solid ${C.linenDim}`,borderRadius:13,color:C.danger,fontWeight:500,cursor:"pointer",fontSize:14,marginBottom:14,fontFamily:"'DM Sans',sans-serif" }}>Sair da conta</button>
 
         <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"14px",border:`1px solid ${C.linen}`,borderRadius:13 }}>
           <FeiraLogo size={20} color={C.stoneSoft} accent={C.stoneSoft} />
-          <p style={{ color:C.stoneSoft,fontSize:11,fontFamily:"'Fraunces',serif",fontStyle:"italic" }}>feira · v1.6</p>
+          <p style={{ color:C.stoneSoft,fontSize:11,fontFamily:"'Fraunces',serif",fontStyle:"italic" }}>feira · v2.0 · compartilhamento</p>
         </div>
       </div>
     </div>
@@ -1191,6 +1676,16 @@ export default function App() {
   const [activeList, setActiveList] = useState(null);
   const [tab, setTab] = useState("lists");
   const [savedMsg, setSavedMsg] = useState(false);
+  const [listMembers, setListMembers] = useState({}); // { list_id: [members] }
+  const [activeListMembers, setActiveListMembers] = useState([]);
+  const [pendingInviteToken, setPendingInviteToken] = useState(null);
+
+  // Detecta token de convite na URL
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const token = url.searchParams.get("invite");
+    if (token) setPendingInviteToken(token);
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session }}) => {
@@ -1205,7 +1700,33 @@ export default function App() {
     loadProfile();
     loadLists();
     loadHistory();
+    checkPendingEmailInvites();
   }, [session]);
+
+  // Quando usuário cria conta, verifica se tinha convites pendentes pelo email
+  const checkPendingEmailInvites = async () => {
+    if (!session?.user?.email) return;
+    const { data: invites } = await supabase
+      .from("list_invites")
+      .select("id, list_id, role")
+      .eq("email", session.user.email.toLowerCase())
+      .is("accepted_at", null);
+
+    if (invites && invites.length > 0) {
+      for (const inv of invites) {
+        // Adiciona como membro
+        await supabase.from("list_members").insert({
+          list_id: inv.list_id, user_id: session.user.id, role: inv.role
+        }).select().maybeSingle();
+
+        // Marca convite como aceito
+        await supabase.from("list_invites").update({
+          accepted_at: new Date().toISOString(), accepted_by: session.user.id
+        }).eq("id", inv.id);
+      }
+      loadLists();
+    }
+  };
 
   const loadProfile = async () => {
     const { data } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
@@ -1214,7 +1735,29 @@ export default function App() {
 
   const loadLists = async () => {
     const { data } = await supabase.from("lists").select("*").order("created_at", { ascending: true });
-    if (data) setLists(data);
+    if (data) {
+      setLists(data);
+      // Carrega membros de cada lista
+      const membersMap = {};
+      for (const list of data) {
+        const { data: mems } = await supabase
+          .from("list_members")
+          .select("user_id, role")
+          .eq("list_id", list.id);
+        if (mems && mems.length > 0) {
+          const userIds = mems.map(m => m.user_id);
+          const { data: profiles } = await supabase
+            .from("profiles")
+            .select("id, name, email")
+            .in("id", userIds);
+          membersMap[list.id] = mems.map(m => {
+            const p = profiles?.find(pf => pf.id === m.user_id);
+            return { ...m, name: p?.name || "", email: p?.email || "" };
+          });
+        }
+      }
+      setListMembers(membersMap);
+    }
   };
 
   const loadHistory = async () => {
@@ -1223,19 +1766,43 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!activeList) { setItems([]); return; }
+    if (!activeList) { setItems([]); setActiveListMembers([]); return; }
     loadItems(activeList.id);
-  }, [activeList]);
+    setActiveListMembers(listMembers[activeList.id] || []);
+  }, [activeList, listMembers]);
 
   const loadItems = async (listId) => {
     const { data } = await supabase.from("items").select("*").eq("list_id", listId).order("created_at", { ascending: true });
     if (data) setItems(data);
   };
 
+  const refreshActiveList = async () => {
+    if (!activeList) return;
+    await loadItems(activeList.id);
+    // Recarrega membros também (caso alguém tenha entrado/saído)
+    const { data: mems } = await supabase
+      .from("list_members")
+      .select("user_id, role")
+      .eq("list_id", activeList.id);
+    if (mems) {
+      const userIds = mems.map(m => m.user_id);
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, name, email")
+        .in("id", userIds);
+      const enriched = mems.map(m => {
+        const p = profiles?.find(pf => pf.id === m.user_id);
+        return { ...m, name: p?.name || "", email: p?.email || "" };
+      });
+      setActiveListMembers(enriched);
+      setListMembers(prev => ({ ...prev, [activeList.id]: enriched }));
+    }
+  };
+
   const [listCounts, setListCounts] = useState({});
   useEffect(() => {
     if (!session?.user || lists.length === 0) return;
-    supabase.from("items").select("list_id, done").eq("user_id", session.user.id).then(({ data }) => {
+    supabase.from("items").select("list_id, done").then(({ data }) => {
       const counts = {};
       lists.forEach(l => { counts[l.id] = { done:0, total:0 }; });
       (data||[]).forEach(i => {
@@ -1249,11 +1816,15 @@ export default function App() {
 
   const addList = async (list) => {
     const { data } = await supabase.from("lists").insert({ ...list, user_id: session.user.id }).select().single();
-    if (data) setLists(prev => [...prev, data]);
+    if (data) {
+      setLists(prev => [...prev, data]);
+      // Trigger no banco já cria o member 'owner', mas atualizamos local também
+      setTimeout(loadLists, 300);
+    }
   };
 
   const deleteList = async (id) => {
-    if (!window.confirm("Excluir esta lista?")) return;
+    if (!window.confirm("Excluir esta lista? Todos os membros perderão acesso.")) return;
     await supabase.from("lists").delete().eq("id", id);
     setLists(prev => prev.filter(l => l.id !== id));
   };
@@ -1266,9 +1837,7 @@ export default function App() {
   const toggleItem = async (item) => {
     const newDone = !item.done;
     const { data } = await supabase.from("items").update({
-      done: newDone,
-      bought_at: newDone ? item.bought_at : null,
-      bought_date: newDone ? new Date().toISOString() : null,
+      done: newDone, bought_at: newDone ? item.bought_at : null, bought_date: newDone ? new Date().toISOString() : null,
     }).eq("id", item.id).select().single();
     if (data) setItems(prev => prev.map(i => i.id===item.id ? data : i));
     setTimeout(loadHistory, 300);
@@ -1286,19 +1855,12 @@ export default function App() {
 
   const markPurchased = async (item, storeId, price) => {
     if (item.done && item.bought_at === storeId) {
-      const { data } = await supabase.from("items").update({
-        done: false, bought_at: null, bought_date: null, bought_price: null
-      }).eq("id", item.id).select().single();
+      const { data } = await supabase.from("items").update({ done: false, bought_at: null, bought_date: null, bought_price: null }).eq("id", item.id).select().single();
       if (data) setItems(prev => prev.map(i => i.id===item.id ? data : i));
       setTimeout(loadHistory, 300);
       return;
     }
-
-    const { data } = await supabase.from("items").update({
-      done: true, bought_at: storeId, bought_date: new Date().toISOString(),
-      bought_price: price ?? null,
-    }).eq("id", item.id).select().single();
-
+    const { data } = await supabase.from("items").update({ done: true, bought_at: storeId, bought_date: new Date().toISOString(), bought_price: price ?? null }).eq("id", item.id).select().single();
     if (data) {
       setItems(prev => prev.map(i => i.id===item.id ? data : i));
       setTimeout(loadHistory, 500);
@@ -1308,15 +1870,8 @@ export default function App() {
   const toggleAllItems = async (markAsDone) => {
     if (!activeList) return;
     const updates = { done: markAsDone };
-    if (!markAsDone) {
-      updates.bought_at = null;
-      updates.bought_date = null;
-      updates.bought_price = null;
-    }
-    const { data } = await supabase.from("items")
-      .update(updates)
-      .eq("list_id", activeList.id)
-      .select();
+    if (!markAsDone) { updates.bought_at = null; updates.bought_date = null; updates.bought_price = null; }
+    const { data } = await supabase.from("items").update(updates).eq("list_id", activeList.id).select();
     if (data) setItems(data);
     setTimeout(loadHistory, 300);
   };
@@ -1346,6 +1901,21 @@ export default function App() {
     setSession(null); setProfile(null); setLists([]); setItems([]);
   };
 
+  // Aceitou convite — limpa URL e entra na lista
+  const handleInviteAccepted = (listId) => {
+    setPendingInviteToken(null);
+    window.history.replaceState({}, "", window.location.pathname);
+    loadLists().then(() => {
+      const list = lists.find(l => l.id === listId);
+      if (list) setActiveList(list);
+    });
+  };
+
+  const handleInviteCancel = () => {
+    setPendingInviteToken(null);
+    window.history.replaceState({}, "", window.location.pathname);
+  };
+
   if (loading) {
     return (
       <div style={{ minHeight:"100vh",background:C.sand,display:"flex",alignItems:"center",justifyContent:"center" }}>
@@ -1355,7 +1925,26 @@ export default function App() {
     );
   }
 
-  if (!session) return <AuthScreen />;
+  if (!session) return <AuthScreen pendingInviteToken={pendingInviteToken} />;
+
+  // Se tem token de convite e está logado, mostra tela de aceite
+  if (pendingInviteToken && session) {
+    return (
+      <div style={{ minHeight:"100vh",background:C.sand }}>
+        <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;500;600&family=DM+Sans:wght@400;500;600&display=swap');
+          *{margin:0;padding:0;box-sizing:border-box}
+          @keyframes spin{to{transform:rotate(360deg)}}
+        `}</style>
+        <AcceptInviteScreen
+          token={pendingInviteToken}
+          currentUserId={session.user.id}
+          onAccepted={handleInviteAccepted}
+          onCancel={handleInviteCancel}
+        />
+      </div>
+    );
+  }
 
   const enabledStores = profile?.enabled_stores?.length ? profile.enabled_stores : ["ml","amazon"];
 
@@ -1384,15 +1973,23 @@ export default function App() {
 
       {activeList ? (
         <ScreenListDetail
-          list={activeList} items={items} onBack={()=>setActiveList(null)}
+          list={activeList}
+          items={items}
+          members={activeListMembers}
+          currentUserId={session.user.id}
+          onBack={()=>setActiveList(null)}
           enabledStores={enabledStores}
-          onAddItem={addItem} onToggleItem={toggleItem} onDeleteItem={deleteItem}
-          onChangeCategory={changeCategory} onMarkPurchased={markPurchased}
+          onAddItem={addItem}
+          onToggleItem={toggleItem}
+          onDeleteItem={deleteItem}
+          onChangeCategory={changeCategory}
+          onMarkPurchased={markPurchased}
           onToggleAll={toggleAllItems}
+          onRefresh={refreshActiveList}
         />
       ) : (
         <>
-          {tab==="lists" && <ScreenLists lists={lists} listCounts={listCounts} onOpen={setActiveList} onAdd={addList} onDelete={deleteList} profile={profile} />}
+          {tab==="lists" && <ScreenLists lists={lists} listCounts={listCounts} listMembers={listMembers} onOpen={setActiveList} onAdd={addList} onDelete={deleteList} profile={profile} currentUserId={session.user.id} />}
           {tab==="history" && <ScreenHistory history={history} onDeleteRecord={deleteHistoryRecord} onDeleteMany={deleteHistoryMany} />}
           {tab==="settings" && <ScreenSettings profile={profile} onSave={saveProfile} onLogout={handleLogout} />}
         </>
