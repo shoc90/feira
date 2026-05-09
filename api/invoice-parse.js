@@ -1,49 +1,23 @@
 // ═══════════════════════════════════════════════════════════════════
-// FEIRA — Vercel Serverless Function
+// FEIRA — Vercel Serverless Function v2
 // Parser de NF-e (NFC-e) das SEFAZ estaduais
 //
 // Endpoint: POST /api/invoice-parse
-// Body: { "url": "https://nfce.sefaz.pe.gov.br:444/..." }
-// Retorna: { ok, invoice: {...}, items: [...] }
+// Body: { "url": "...", "debug": false }
 //
-// INSTALAÇÃO:
-// Este arquivo precisa do pacote node-html-parser. Adicione em package.json:
-//   "dependencies": { "node-html-parser": "^6.1.13" }
+// Modo debug: passa { "url": "...", "debug": true } e retorna HTML cru
+// (use para investigar estrutura quando o parser não funciona)
 // ═══════════════════════════════════════════════════════════════════
 
 import { parse as parseHTML } from "node-html-parser";
 
-// ─────────────────────────────────────────────────────────────────────
-// Configuração por estado (UF)
-// ─────────────────────────────────────────────────────────────────────
 const STATE_CONFIG = {
-  // PE — Pernambuco
-  "26": {
-    name: "Pernambuco",
-    domain: "nfce.sefaz.pe.gov.br",
-    parser: "pe_v1"
-  },
-  // SP — São Paulo
-  "35": {
-    name: "São Paulo",
-    domain: "nfce.fazenda.sp.gov.br",
-    parser: null // ainda não suportado
-  },
-  // RJ — Rio de Janeiro
-  "33": {
-    name: "Rio de Janeiro",
-    domain: "consultadfe.fazenda.rj.gov.br",
-    parser: null
-  },
-  // Adicione outros estados aqui conforme demanda
+  "26": { name: "Pernambuco", parser: "pe_v1" },
+  "35": { name: "São Paulo", parser: null },
+  "33": { name: "Rio de Janeiro", parser: null },
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// Validação e extração da chave de acesso (44 dígitos)
-// ─────────────────────────────────────────────────────────────────────
 function extractAccessKey(url) {
-  // O parâmetro "p" da URL contém: chave|versao|tpAmb|dhEmi|vNF|digestValue
-  // Pegamos só os 44 primeiros dígitos
   try {
     const parsed = new URL(url);
     const p = parsed.searchParams.get("p");
@@ -60,154 +34,173 @@ function extractAccessKey(url) {
 function parseAccessKey(key) {
   return {
     uf: key.substring(0, 2),
-    aamm: key.substring(2, 6),
     cnpj: key.substring(6, 20),
-    modelo: key.substring(20, 22),
-    serie: key.substring(22, 25),
-    numero: key.substring(25, 34),
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Parser SEFAZ-PE v1
-// HTML estrutura observada (pode variar levemente):
-// - tabela com #tabResult contendo tr's de itens
-// - cada tr tem: descrição, quantidade, unidade, valor unitário, valor total
-// - cabeçalho com nome do supermercado, CNPJ, endereço, total
-// ─────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// PARSER PE v2 — abordagem mais robusta usando regex e múltiplos seletores
+// ═══════════════════════════════════════════════════════════════════
 function parsePE(html) {
   const root = parseHTML(html);
 
-  // Nome e CNPJ do estabelecimento
-  const storeNameEl = root.querySelector(".txtTopo");
-  const storeName = storeNameEl ? storeNameEl.text.trim() : null;
-
-  // Endereço
-  const enderecoEl = root.querySelector(".text");
-  const storeAddress = enderecoEl ? enderecoEl.text.trim().replace(/\s+/g, " ") : null;
-
-  // Itens — múltiplas estruturas possíveis, vamos cobrir as principais
+  // ─────────────────────────────────────────────────────────────────
+  // ESTRATÉGIA 1: tentar IDs e classes conhecidas
+  // ─────────────────────────────────────────────────────────────────
+  let storeName = null;
+  let storeAddress = null;
+  let totalAmount = null;
+  let totalItems = null;
+  let issuedAt = null;
   let items = [];
 
-  // Estrutura A: tabela com #tabResult
-  const tabResult = root.querySelector("#tabResult");
-  if (tabResult) {
-    const trs = tabResult.querySelectorAll("tr");
-    for (const tr of trs) {
-      const item = parsePEItemRow(tr);
-      if (item) items.push(item);
+  // Tenta vários seletores possíveis para o nome da loja
+  const storeNameSelectors = [
+    "#u20", ".txtTopo", "#topo", ".topo", "td.txtTopo",
+    "h1", "h2", "h3", "h4",
+    "[class*='txtTopo']", "[class*='topo']"
+  ];
+  for (const sel of storeNameSelectors) {
+    const el = root.querySelector(sel);
+    if (el && el.text && el.text.trim().length > 5) {
+      storeName = el.text.trim().replace(/\s+/g, " ");
+      break;
     }
   }
 
-  // Estrutura B: divs com classe .txtTit2 (algumas versões)
-  if (items.length === 0) {
-    const itemDivs = root.querySelectorAll(".txtTit2");
-    for (const div of itemDivs) {
-      const parent = div.parentNode;
-      if (!parent) continue;
-      const item = parsePEItemFromDiv(parent);
-      if (item) items.push(item);
-    }
-  }
+  // ─────────────────────────────────────────────────────────────────
+  // ESTRATÉGIA 2: parser de itens via regex no texto cru
+  // (mais resiliente a mudanças de layout)
+  // ─────────────────────────────────────────────────────────────────
+  const fullText = root.text.replace(/\s+/g, " ");
 
   // Total da nota
-  const totalEl = root.querySelector(".totalNumb");
-  let totalAmount = null;
-  if (totalEl) {
-    totalAmount = parseFloat(totalEl.text.trim().replace(".", "").replace(",", "."));
+  const totalMatch = fullText.match(/Valor a Pagar[\s:R$]*([\d.,]+)/i)
+    || fullText.match(/Valor Total[\s:R$]*([\d.,]+)/i)
+    || fullText.match(/Total[\s:R$]*([\d.,]+)/i);
+  if (totalMatch) {
+    totalAmount = parseFloat(totalMatch[1].replace(".", "").replace(",", "."));
   }
 
-  // Quantidade total de itens
-  const qtdItensEl = root.querySelector(".totalNumb.txtMax");
-  let totalItems = items.length || null;
+  // Quantidade de itens
+  const qtdMatch = fullText.match(/Qtde\s*\.?\s*total\s*de\s*itens?[\s:]*(\d+)/i);
+  if (qtdMatch) {
+    totalItems = parseInt(qtdMatch[1], 10);
+  }
 
-  // Data de emissão — geralmente está em uma <li> ou span
-  let issuedAt = null;
-  const allText = root.text;
-  const dateMatch = allText.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+  // Data de emissão
+  const dateMatch = fullText.match(/Emissão[\s:]*(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/i)
+    || fullText.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/);
   if (dateMatch) {
     const [, date, time] = dateMatch;
     const [d, m, y] = date.split("/");
     issuedAt = `${y}-${m}-${d}T${time}-03:00`;
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // ESTRATÉGIA 3: extrair itens varrendo TODAS as tabelas
+  // ─────────────────────────────────────────────────────────────────
+  const allTables = root.querySelectorAll("table");
+
+  for (const table of allTables) {
+    const rows = table.querySelectorAll("tr");
+    for (const row of rows) {
+      const item = parsePEItemRow(row);
+      if (item && item.name && item.name.length > 2) {
+        // Evita duplicatas
+        const dup = items.find(i => i.name === item.name && i.total_price === item.total_price);
+        if (!dup) items.push(item);
+      }
+    }
+  }
+
+  // Estratégia 4: se ainda não tem itens, tenta extrair via regex no texto
+  if (items.length === 0) {
+    items = extractItemsFromText(fullText);
+  }
+
   return {
     storeName,
     storeAddress,
     totalAmount,
-    totalItems,
+    totalItems: totalItems || items.length,
     issuedAt,
     items
   };
 }
 
 function parsePEItemRow(tr) {
-  // Tenta extrair de uma linha de tabela
   try {
-    const desc = tr.querySelector(".txtTit2, .txtTit");
-    const qty = tr.querySelector(".Rqtd, .qtd");
-    const unit = tr.querySelector(".RUN, .un");
-    const unitPrice = tr.querySelector(".RvlUnit, .vlUnit");
-    const totalPrice = tr.querySelector(".valor, .vlTotal, .RvlTotal");
+    const text = tr.text;
+    if (!text || text.length < 10) return null;
 
-    if (!desc) return null;
-
-    const name = desc.text.trim().replace(/\s+/g, " ");
-    if (!name) return null;
-
-    const qtyText = qty ? qty.text.replace(/[^\d,.\-]/g, "").replace(",", ".") : "1";
-    const unitText = unit ? unit.text.replace(/[^a-zA-Zçãáéíóú]/gi, "").toLowerCase() : "un";
-    const unitPriceText = unitPrice ? unitPrice.text.replace(/[^\d,.\-]/g, "").replace(",", ".") : "0";
-    const totalPriceText = totalPrice ? totalPrice.text.replace(/[^\d,.\-]/g, "").replace(",", ".") : "0";
-
-    return {
-      name: cleanItemName(name),
-      qty: parseFloat(qtyText) || 1,
-      unit: normalizeUnit(unitText),
-      unit_price: parseFloat(unitPriceText) || 0,
-      total_price: parseFloat(totalPriceText) || 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function parsePEItemFromDiv(parent) {
-  try {
-    const text = parent.text;
-    const name = (parent.querySelector(".txtTit2") || parent.querySelector(".txtTit"))?.text.trim();
-    if (!name) return null;
-
-    // Padrões comuns no HTML da SEFAZ-PE:
-    //   "Qtde.: 1,000 UN: KG ... Vl. Unit.: 5,99 ... Vl. Total 5,99"
+    // Padrão típico de linha de item da NFC-e:
+    // "DESCRIÇÃO ... Qtde.: X UN: KG ... Vl. Unit.: X,XX ... Vl. Total X,XX"
     const qtyMatch = text.match(/Qtde[\s.:]+([\d.,]+)/i);
     const unitMatch = text.match(/UN[\s.:]+([A-Za-z]+)/i);
-    const unitPriceMatch = text.match(/Vl[\s.]?Unit[\s.:]+([\d.,]+)/i);
-    const totalMatch = text.match(/Vl[\s.]?Total[\s.:]+([\d.,]+)/i);
+    const unitPriceMatch = text.match(/Vl[\s.]?\s*Unit[\s.:]+\s*\(?R?\$?\s*([\d.,]+)/i);
+    const totalMatch = text.match(/Vl[\s.]?\s*Total[\s.:]+\s*\(?R?\$?\s*([\d.,]+)/i);
+
+    if (!qtyMatch || !totalMatch) return null;
+
+    // Tenta extrair o nome — geralmente é a primeira parte antes de "Qtde"
+    let name = "";
+    const nameEl = tr.querySelector(".txtTit2") || tr.querySelector(".txtTit") || tr.querySelector("td");
+    if (nameEl) {
+      name = nameEl.text.trim().split(/Qtde/i)[0].trim();
+    } else {
+      name = text.split(/Qtde/i)[0].trim();
+    }
+
+    if (!name || name.length < 2) return null;
 
     return {
       name: cleanItemName(name),
-      qty: qtyMatch ? parseFloat(qtyMatch[1].replace(".", "").replace(",", ".")) : 1,
-      unit: unitMatch ? normalizeUnit(unitMatch[1]) : "un",
-      unit_price: unitPriceMatch ? parseFloat(unitPriceMatch[1].replace(".", "").replace(",", ".")) : 0,
-      total_price: totalMatch ? parseFloat(totalMatch[1].replace(".", "").replace(",", ".")) : 0,
+      qty: parseNum(qtyMatch[1]),
+      unit: normalizeUnit(unitMatch?.[1] || "un"),
+      unit_price: unitPriceMatch ? parseNum(unitPriceMatch[1]) : 0,
+      total_price: parseNum(totalMatch[1]),
     };
   } catch {
     return null;
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Normalização de nomes (NF traz tudo em CAIXA ALTA com abreviações)
-// ─────────────────────────────────────────────────────────────────────
+function extractItemsFromText(text) {
+  const items = [];
+  // Regex muito flexível: captura blocos com "Qtde.: X UN: Y ... Vl.Unit: Z ... Vl. Total W"
+  const itemRegex = /(.+?)\s*Qtde[\s.:]+([\d.,]+)\s*(?:UN|Un)[\s.:]+([A-Za-z]+)\s*.*?Vl[\s.]?\s*Unit[\s.:]+\s*\(?R?\$?\s*([\d.,]+)\s*.*?Vl[\s.]?\s*Total\s*\(?R?\$?\s*([\d.,]+)/gi;
+
+  let match;
+  while ((match = itemRegex.exec(text)) !== null) {
+    const [, rawName, qty, unit, unitPrice, totalPrice] = match;
+    const name = cleanItemName(rawName);
+    if (name && name.length > 2) {
+      items.push({
+        name,
+        qty: parseNum(qty),
+        unit: normalizeUnit(unit),
+        unit_price: parseNum(unitPrice),
+        total_price: parseNum(totalPrice),
+      });
+    }
+  }
+  return items;
+}
+
+function parseNum(s) {
+  if (!s) return 0;
+  const cleaned = String(s).trim().replace(/\./g, "").replace(",", ".");
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? 0 : n;
+}
+
 function cleanItemName(raw) {
   if (!raw) return "";
-
-  // Remove códigos de produto no início (ex: "7896013100966 #0#VINAGRE")
   let cleaned = raw
-    .replace(/^[\d#\s]+#\d*#?/g, "")           // remove "1234 #0#" no início
-    .replace(/^[\d\s]+/, "")                   // remove dígitos soltos no início
-    .replace(/#/g, " ")                        // remove #'s
+    .replace(/^[\d#\s]+#\d*#?/g, "")
+    .replace(/^[\d\s]+/, "")
+    .replace(/#/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -235,11 +228,10 @@ function normalizeUnit(raw) {
   return map[k] || "un";
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// HANDLER principal
-// ─────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// HANDLER
+// ═══════════════════════════════════════════════════════════════════
 export default async function handler(req, res) {
-  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -248,116 +240,95 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
 
   try {
-    const { url } = req.body || {};
+    const { url, debug } = req.body || {};
     if (!url || typeof url !== "string") {
       return res.status(400).json({ ok: false, error: "URL é obrigatória" });
     }
 
-    // 1. Extrai chave de acesso
     const accessKey = extractAccessKey(url);
     if (!accessKey) {
-      return res.status(400).json({ ok: false, error: "URL inválida ou chave de acesso não encontrada" });
+      return res.status(400).json({ ok: false, error: "URL inválida" });
     }
 
-    // 2. Identifica o estado
     const parsed = parseAccessKey(accessKey);
     const config = STATE_CONFIG[parsed.uf];
-    if (!config) {
+    if (!config || !config.parser) {
       return res.status(400).json({
         ok: false,
-        error: `Estado UF=${parsed.uf} não suportado ainda`,
-        access_key: accessKey
+        error: `Estado UF=${parsed.uf} não suportado. Suportamos: PE.`,
       });
     }
 
-    if (!config.parser) {
-      return res.status(400).json({
-        ok: false,
-        error: `Estado ${config.name} ainda não suportado. Suportamos: Pernambuco.`,
-        access_key: accessKey
-      });
-    }
-
-    // 3. Baixa o HTML da SEFAZ
-    const fetchTimeout = 15000; // 15s
+    // Baixa HTML
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), fetchTimeout);
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
 
-    let html;
-    try {
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-        }
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+      }
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return res.status(502).json({
+        ok: false,
+        error: `SEFAZ retornou status ${response.status}`,
       });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        return res.status(502).json({
-          ok: false,
-          error: `SEFAZ ${config.name} retornou status ${response.status}. Tente novamente em alguns minutos.`,
-          access_key: accessKey
-        });
-      }
-
-      html = await response.text();
-    } catch (err) {
-      clearTimeout(timeoutId);
-      if (err.name === "AbortError") {
-        return res.status(504).json({
-          ok: false,
-          error: `Tempo esgotado ao consultar SEFAZ ${config.name}. Tente novamente.`,
-          access_key: accessKey
-        });
-      }
-      throw err;
     }
 
-    // 4. Parser específico do estado
-    let parsed_data;
-    if (config.parser === "pe_v1") {
-      parsed_data = parsePE(html);
-    } else {
-      return res.status(500).json({ ok: false, error: "Parser não implementado" });
+    const html = await response.text();
+
+    // Modo debug: retorna HTML cru
+    if (debug === true) {
+      return res.status(200).json({
+        ok: true,
+        debug_mode: true,
+        access_key: accessKey,
+        html_length: html.length,
+        html_sample: html.substring(0, 5000), // primeiros 5KB
+        html_full: html, // HTML completo
+      });
     }
 
-    // 5. Validações finais
-    if (!parsed_data.items || parsed_data.items.length === 0) {
+    // Parser normal
+    const data = parsePE(html);
+
+    if (!data.items || data.items.length === 0) {
       return res.status(422).json({
         ok: false,
-        error: "Não consegui extrair os itens. A página da SEFAZ pode estar fora do ar ou ter mudado o layout.",
+        error: "Não consegui extrair os itens. Use modo debug para investigar.",
         access_key: accessKey,
-        debug: { hasStoreName: !!parsed_data.storeName, htmlLength: html.length }
+        debug: { hasStoreName: !!data.storeName, htmlLength: html.length }
       });
     }
 
-    // 6. Resposta
     return res.status(200).json({
       ok: true,
       invoice: {
         access_key: accessKey,
-        store_name: parsed_data.storeName,
+        store_name: data.storeName,
         store_cnpj: parsed.cnpj,
-        store_address: parsed_data.storeAddress,
-        total_amount: parsed_data.totalAmount,
-        total_items: parsed_data.totalItems,
-        issued_at: parsed_data.issuedAt,
+        store_address: data.storeAddress,
+        total_amount: data.totalAmount,
+        total_items: data.totalItems,
+        issued_at: data.issuedAt,
         state: config.name,
         uf: parsed.uf,
         raw_url: url
       },
-      items: parsed_data.items
+      items: data.items
     });
 
   } catch (err) {
     console.error("[invoice-parse] erro:", err);
     return res.status(500).json({
       ok: false,
-      error: "Erro interno ao processar a nota. " + (err.message || "")
+      error: "Erro interno: " + (err.message || "")
     });
   }
 }
