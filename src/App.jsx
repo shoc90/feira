@@ -1256,7 +1256,7 @@ function ScreenLists({ lists, listCounts, listMembers, onOpen, onAdd, onDelete, 
 // ═════════════════════════════════════════════════════════════════════
 // SCREEN: LIST DETAIL
 // ═════════════════════════════════════════════════════════════════════
-function ScreenListDetail({ list, items, members, currentUserId, onBack, enabledStores, onAddItem, onToggleItem, onDeleteItem, onChangeCategory, onMarkPurchased, onToggleAll, onRefresh }) {
+function ScreenListDetail({ list, items, members, currentUserId, onBack, enabledStores, onAddItem, onToggleItem, onDeleteItem, onChangeCategory, onMarkPurchased, onToggleAll, onRefresh, onRegisterPurchase }) {
   const [showAdd, setShowAdd] = useState(false);
   const [openItem, setOpenItem] = useState(null);
   const [showShare, setShowShare] = useState(false);
@@ -1348,6 +1348,23 @@ function ScreenListDetail({ list, items, members, currentUserId, onBack, enabled
         {total>0 && <div style={{ height:4,background:C.linenDim,borderRadius:4 }}><div style={{ height:"100%",width:`${progress}%`,borderRadius:4,background:C.sage,transition:"width 0.5s" }} /></div>}
       </div>
 
+      {canEdit && onRegisterPurchase && (
+        <div style={{ padding:"12px 14px 0" }}>
+          <button
+            onClick={()=>onRegisterPurchase()}
+            style={{
+              width:"100%", padding:"12px 14px",
+              background:`${C.sage}22`, border:`1px solid ${C.sage}55`, borderRadius:11,
+              color:C.graphite, fontSize:13, fontWeight:500, cursor:"pointer",
+              fontFamily:"'DM Sans',sans-serif",
+              display:"flex", alignItems:"center", justifyContent:"center", gap:8
+            }}
+          >
+            🧾 <span>Registrar compra desta lista</span>
+          </button>
+        </div>
+      )}
+
       {total > 0 && (
         <div style={{ display:"flex",gap:8,padding:"12px 14px 4px",alignItems:"center" }}>
           <select
@@ -1418,7 +1435,7 @@ function ScreenListDetail({ list, items, members, currentUserId, onBack, enabled
 // ═════════════════════════════════════════════════════════════════════
 // SCREEN: HISTORY
 // ═════════════════════════════════════════════════════════════════════
-function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
+function ScreenHistory({ history, onDeleteRecord, onDeleteMany, onRegisterPurchase }) {
   const [storeFilter, setStoreFilter] = useState("all");
   const [sortBy, setSortBy] = useState("data");
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -1464,6 +1481,23 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany }) {
         <p style={{ color:C.stone,fontSize:10,textTransform:"uppercase",letterSpacing:1.8,fontWeight:500,marginBottom:6 }}>Histórico</p>
         <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:26,fontWeight:500,color:C.graphite,letterSpacing:"-0.5px" }}>Compras realizadas</h2>
       </div>
+
+      {onRegisterPurchase && (
+        <div style={{ padding:"0 14px 10px" }}>
+          <button
+            onClick={()=>onRegisterPurchase()}
+            style={{
+              width:"100%", padding:"12px 14px",
+              background:`${C.sage}22`, border:`1px solid ${C.sage}55`, borderRadius:11,
+              color:C.graphite, fontSize:13, fontWeight:500, cursor:"pointer",
+              fontFamily:"'DM Sans',sans-serif",
+              display:"flex", alignItems:"center", justifyContent:"center", gap:8
+            }}
+          >
+            🧾 <span>Registrar compra avulsa</span>
+          </button>
+        </div>
+      )}
 
       {history.length > 0 && (
         <div style={{ display:"flex",gap:8,padding:"0 14px 10px",alignItems:"center" }}>
@@ -1664,6 +1698,469 @@ function BottomNav({ tab, setTab }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
+// REGISTER PURCHASE MODAL — escolha do método de registro
+// ═════════════════════════════════════════════════════════════════════
+function RegisterPurchaseModal({ onClose, onChooseMethod }) {
+  const Option = ({ emoji, title, desc, available, onClick }) => (
+    <button
+      onClick={available ? onClick : undefined}
+      disabled={!available}
+      style={{
+        width:"100%", padding:"16px 14px", marginBottom:10,
+        background: available ? C.linen : C.linenDim,
+        border:`1px solid ${available ? C.linenDim : C.linenDim}`,
+        borderRadius:13, cursor: available ? "pointer" : "not-allowed",
+        display:"flex", alignItems:"center", gap:14,
+        textAlign:"left", fontFamily:"'DM Sans',sans-serif",
+        opacity: available ? 1 : 0.55
+      }}
+    >
+      <div style={{ fontSize:30, flexShrink:0 }}>{emoji}</div>
+      <div style={{ flex:1, minWidth:0 }}>
+        <p style={{ color:C.graphite, fontSize:15, fontWeight:500, marginBottom:2 }}>
+          {title} {!available && <span style={{ fontSize:10, color:C.stone, fontWeight:400 }}>· em breve</span>}
+        </p>
+        <p style={{ color:C.stone, fontSize:12, lineHeight:1.4 }}>{desc}</p>
+      </div>
+      {available && <span style={{ color:C.stone, fontSize:18 }}>›</span>}
+    </button>
+  );
+
+  return (
+    <Modal
+      onClose={onClose}
+      title="Registrar compra"
+      footer={
+        <button onClick={onClose} style={{ width:"100%",padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>
+          Cancelar
+        </button>
+      }
+    >
+      <p style={{ color:C.inkSoft,fontSize:13,marginBottom:16,lineHeight:1.5 }}>
+        Escolha como deseja registrar sua compra de mercado:
+      </p>
+
+      <Option
+        emoji="🔗"
+        title="Colar link ou chave"
+        desc="Cole o link do cupom (do WhatsApp, email) ou os 44 dígitos da chave"
+        available={true}
+        onClick={() => onChooseMethod("paste")}
+      />
+      <Option
+        emoji="📷"
+        title="Escanear QR Code"
+        desc="Aponte a câmera para o QR Code do cupom fiscal"
+        available={false}
+      />
+      <Option
+        emoji="📸"
+        title="Foto do cupom"
+        desc="Tire uma foto do cupom e o app extrai os dados"
+        available={false}
+      />
+    </Modal>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// PASTE LINK MODAL — colar URL ou chave de acesso
+// ═════════════════════════════════════════════════════════════════════
+function PasteLinkModal({ onClose, onSubmit, loading }) {
+  const [input, setInput] = useState("");
+  const [error, setError] = useState(null);
+
+  const handleSubmit = () => {
+    const cleaned = input.trim();
+    if (!cleaned) {
+      setError("Cole um link ou chave de acesso");
+      return;
+    }
+
+    // Se for só número (chave de acesso 44 dígitos), monta URL
+    const onlyDigits = cleaned.replace(/\D/g, "");
+    if (onlyDigits.length === 44 && cleaned.indexOf("http") === -1) {
+      // Detecta UF a partir da chave
+      const uf = onlyDigits.substring(0, 2);
+      const ufDomains = {
+        "26": "https://nfce.sefaz.pe.gov.br:444/nfce-web/consultarNFCe?p=",
+        // Adicionar outros estados aqui no futuro
+      };
+      const base = ufDomains[uf];
+      if (!base) {
+        setError(`Estado UF=${uf} ainda não suportado. Por enquanto suportamos: PE.`);
+        return;
+      }
+      // Sem versão/dhEmi/vNF/digestValue — algumas SEFAZ aceitam só a chave
+      onSubmit(base + onlyDigits);
+      return;
+    }
+
+    // Se for URL, valida que é da SEFAZ
+    if (!cleaned.startsWith("http")) {
+      setError("Cole um link válido (começa com https://)");
+      return;
+    }
+    if (cleaned.indexOf("sefaz") === -1 && cleaned.indexOf("fazenda") === -1) {
+      setError("Este link não parece ser de uma SEFAZ. Verifique e tente novamente.");
+      return;
+    }
+
+    onSubmit(cleaned);
+  };
+
+  return (
+    <Modal
+      onClose={onClose}
+      title="Colar link ou chave"
+      footer={
+        <div style={{ display:"flex",gap:8 }}>
+          <button onClick={onClose} disabled={loading} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:loading?"wait":"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>
+            Voltar
+          </button>
+          <button onClick={handleSubmit} disabled={loading} style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:loading?"wait":"pointer",fontSize:15,fontFamily:"'DM Sans',sans-serif",opacity:loading?0.7:1 }}>
+            {loading ? "Buscando..." : "Buscar nota"}
+          </button>
+        </div>
+      }
+    >
+      <p style={{ color:C.inkSoft,fontSize:13,marginBottom:14,lineHeight:1.5 }}>
+        Cole aqui o <strong>link do cupom fiscal</strong> que você recebeu por WhatsApp/email, ou os <strong>44 dígitos da chave de acesso</strong>.
+      </p>
+
+      <textarea
+        style={{ ...inp, minHeight:90, fontFamily:"monospace", fontSize:11, resize:"vertical" }}
+        placeholder="https://nfce.sefaz.pe.gov.br:444/...&#10;ou&#10;26260308845439000550651040004177721339111500"
+        value={input}
+        onChange={e => { setInput(e.target.value); setError(null); }}
+        autoFocus
+        disabled={loading}
+      />
+
+      {error && (
+        <div style={{ background:`${C.danger}15`,border:`1px solid ${C.danger}55`,borderRadius:9,padding:"10px 12px",marginTop:12 }}>
+          <p style={{ color:C.danger,fontSize:13 }}>{error}</p>
+        </div>
+      )}
+
+      <div style={{ background:`${C.sage}15`, border:`1px solid ${C.sage}33`, borderRadius:9, padding:"10px 12px", marginTop:14 }}>
+        <p style={{ color:C.inkSoft, fontSize:11, lineHeight:1.5 }}>
+          💡 <strong>Dica:</strong> No cupom de papel, a chave aparece como número longo na parte inferior. Você também pode escanear o QR Code com o app da câmera do celular e copiar o link que abrir.
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// INVOICE DUPLICATE MODAL — quando a NF já foi importada
+// ═════════════════════════════════════════════════════════════════════
+function InvoiceDuplicateModal({ existing, onClose, onViewHistory }) {
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"}) : "—";
+  return (
+    <Modal
+      onClose={onClose}
+      title="Nota já registrada"
+      footer={
+        <div style={{ display:"flex",gap:8 }}>
+          <button onClick={onClose} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>
+            Cancelar
+          </button>
+          <button onClick={onViewHistory} style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:"pointer",fontSize:15,fontFamily:"'DM Sans',sans-serif" }}>
+            Ver no histórico
+          </button>
+        </div>
+      }
+    >
+      <div style={{ textAlign:"center", padding:"6px 0 12px" }}>
+        <div style={{ fontSize:42, marginBottom:10 }}>🛒</div>
+        <p style={{ color:C.inkSoft, fontSize:14, lineHeight:1.5, marginBottom:14 }}>
+          Esta nota fiscal já foi registrada anteriormente. Os itens estão no seu histórico.
+        </p>
+        <div style={{ background:C.linen, borderRadius:11, padding:"14px", textAlign:"left" }}>
+          <p style={{ color:C.graphite, fontSize:14, fontWeight:500, marginBottom:4 }}>
+            {existing.store_name || "Supermercado"}
+          </p>
+          <p style={{ color:C.stone, fontSize:12 }}>
+            {fmtDate(existing.issued_at)} · {existing.total_items || "?"} itens · R$ {Number(existing.total_amount || 0).toFixed(2).replace(".", ",")}
+          </p>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// INVOICE ITEM EDITOR — editar nome/qtd/unidade/categoria
+// ═════════════════════════════════════════════════════════════════════
+function InvoiceItemEditor({ item, onSave, onClose }) {
+  const [name, setName] = useState(item.name);
+  const [qty, setQty] = useState(String(item.qty));
+  const [unit, setUnit] = useState(item.unit);
+  const [category, setCategory] = useState(item.category);
+  const [showCatPicker, setShowCatPicker] = useState(false);
+  const catObj = CATEGORIES.find(c => c.id === category) || CATEGORIES[9];
+
+  const handle = () => {
+    onSave({
+      ...item,
+      name: name.trim() || item.name,
+      qty: parseFloat(qty.replace(",", ".")) || item.qty,
+      unit,
+      category,
+    });
+    onClose();
+  };
+
+  return (
+    <>
+      <Modal
+        onClose={onClose}
+        title="Editar item"
+        footer={
+          <div style={{ display:"flex",gap:8 }}>
+            <button onClick={onClose} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>Cancelar</button>
+            <button onClick={handle} style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:"pointer",fontSize:15,fontFamily:"'DM Sans',sans-serif" }}>Salvar</button>
+          </div>
+        }
+      >
+        <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+          <div>
+            <p style={{ color:C.stone,fontSize:11,marginBottom:6,textTransform:"uppercase",letterSpacing:1 }}>Nome</p>
+            <input style={inp} value={name} onChange={e=>setName(e.target.value)} />
+          </div>
+
+          <button
+            onClick={()=>setShowCatPicker(true)}
+            style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:`${C.sage}22`,border:`1px solid ${C.sage}55`,borderRadius:9,cursor:"pointer",textAlign:"left",fontFamily:"'DM Sans',sans-serif",width:"100%" }}
+          >
+            <span style={{ fontSize:18 }}>{catObj.emoji}</span>
+            <div style={{ flex:1 }}>
+              <p style={{ color:C.stoneSoft,fontSize:10,textTransform:"uppercase",letterSpacing:1,marginBottom:2 }}>Categoria</p>
+              <p style={{ color:C.inkSoft,fontSize:13,fontWeight:500 }}>{catObj.label}</p>
+            </div>
+            <span style={{ color:C.stone,fontSize:11 }}>Alterar →</span>
+          </button>
+
+          <div style={{ display:"flex",gap:7 }}>
+            <div style={{ width:"35%" }}>
+              <p style={{ color:C.stone,fontSize:11,marginBottom:6,textTransform:"uppercase",letterSpacing:1 }}>Qtd</p>
+              <input style={inp} value={qty} onChange={e=>setQty(e.target.value)} inputMode="decimal" />
+            </div>
+            <div style={{ flex:1 }}>
+              <p style={{ color:C.stone,fontSize:11,marginBottom:6,textTransform:"uppercase",letterSpacing:1 }}>Unidade</p>
+              <select style={inp} value={unit} onChange={e=>setUnit(e.target.value)}>
+                {["un","kg","g","L","ml","cx","pct","dz"].map(u=><option key={u}>{u}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ background:C.linen, padding:"10px 12px", borderRadius:9, marginTop:4 }}>
+            <p style={{ color:C.stoneSoft, fontSize:10, textTransform:"uppercase", letterSpacing:1, marginBottom:3 }}>Valor pago</p>
+            <p style={{ color:C.graphite, fontFamily:"'Fraunces',serif", fontSize:18, fontWeight:500 }}>
+              R$ {Number(item.total_price).toFixed(2).replace(".",",")}
+            </p>
+            <p style={{ color:C.stoneSoft, fontSize:10, marginTop:2 }}>
+              (não pode ser editado — vem da nota fiscal)
+            </p>
+          </div>
+        </div>
+      </Modal>
+
+      {showCatPicker && (
+        <CategoryPicker
+          current={category}
+          onChange={(cid)=>setCategory(cid)}
+          onClose={()=>setShowCatPicker(false)}
+        />
+      )}
+    </>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// INVOICE PREVIEW SCREEN — preview com cruzamento e edição
+// ═════════════════════════════════════════════════════════════════════
+function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, onConfirm, saving }) {
+  // Cada item tem: { ...invoice_item, category (auto), selected (true), in_list_item_id (uuid|null) }
+  const [enrichedItems, setEnrichedItems] = useState(() =>
+    items.map(it => {
+      // Cruzamento simples por nome (ignora caso e espaços extras)
+      const normalize = s => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
+      const matchedListItem = (listItems || []).find(li =>
+        normalize(li.name) === normalize(it.name) ||
+        normalize(it.name).includes(normalize(li.name)) ||
+        normalize(li.name).includes(normalize(it.name))
+      );
+      return {
+        ...it,
+        id: `tmp_${it.n}`,
+        category: guessCategory(it.name),
+        selected: true,
+        in_list_item_id: matchedListItem?.id || null,
+        in_list_item_name: matchedListItem?.name || null,
+      };
+    })
+  );
+
+  const [editing, setEditing] = useState(null);
+
+  const inListItems = enrichedItems.filter(i => i.in_list_item_id);
+  const extraItems = enrichedItems.filter(i => !i.in_list_item_id);
+
+  const selectedCount = enrichedItems.filter(i => i.selected).length;
+  const selectedTotal = enrichedItems.filter(i => i.selected).reduce((s, i) => s + (Number(i.total_price) || 0), 0);
+
+  const toggleSelect = (id) => {
+    setEnrichedItems(prev => prev.map(i => i.id === id ? { ...i, selected: !i.selected } : i));
+  };
+
+  const toggleAll = (val) => {
+    setEnrichedItems(prev => prev.map(i => ({ ...i, selected: val })));
+  };
+
+  const allSelected = enrichedItems.every(i => i.selected);
+
+  const updateItem = (updated) => {
+    setEnrichedItems(prev => prev.map(i => i.id === updated.id ? { ...i, ...updated } : i));
+  };
+
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
+  const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "";
+
+  const renderItem = (it) => {
+    const cat = CATEGORIES.find(c => c.id === it.category) || CATEGORIES[9];
+    return (
+      <div
+        key={it.id}
+        style={{
+          display:"flex", alignItems:"center", gap:11, padding:"11px 12px",
+          background: it.selected ? "#FAF8F4" : C.linen,
+          borderRadius:12, marginBottom:7,
+          border:`1px solid ${it.selected ? C.linen : C.linenDim}`,
+          opacity: it.selected ? 1 : 0.6,
+          transition:"all 0.15s"
+        }}
+      >
+        <button
+          onClick={() => toggleSelect(it.id)}
+          style={{
+            width:24, height:24, borderRadius:7, flexShrink:0,
+            background: it.selected ? C.sage : "transparent",
+            border:`1.5px solid ${it.selected ? C.sage : C.stoneSoft}`,
+            cursor:"pointer", fontSize:12, display:"flex", alignItems:"center", justifyContent:"center",
+            color:C.graphite, fontWeight:700
+          }}
+        >{it.selected ? "✓" : ""}</button>
+
+        <div style={{ flex:1, minWidth:0, cursor:"pointer" }} onClick={() => setEditing(it)}>
+          <p style={{ color:C.graphite, fontSize:14, fontWeight:500, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+            {it.name}
+          </p>
+          <p style={{ color:C.stoneSoft, fontSize:11, marginTop:1 }}>
+            {Number(it.qty).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {it.unit} · R$ {Number(it.total_price).toFixed(2).replace(".",",")}
+            {it.in_list_item_id && it.in_list_item_name !== it.name && ` · ↔ "${it.in_list_item_name}"`}
+          </p>
+        </div>
+
+        <button
+          onClick={(e) => { e.stopPropagation(); setEditing(it); }}
+          title="Categoria"
+          style={{
+            background:C.linen, border:`1px solid ${C.linenDim}`, borderRadius:8,
+            width:32, height:32, fontSize:15, cursor:"pointer",
+            display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0
+          }}
+        >{cat.emoji}</button>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:C.sand, paddingBottom: 100 }}>
+      {/* Header */}
+      <div style={{ padding:"40px 16px 14px", background:C.linen }}>
+        <button onClick={onCancel} style={{ background:"none",border:"none",color:C.stone,fontSize:13,cursor:"pointer",marginBottom:10,display:"flex",alignItems:"center",gap:5,fontFamily:"'DM Sans',sans-serif" }}>← Cancelar</button>
+
+        <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:22,fontWeight:500,color:C.graphite,letterSpacing:"-0.3px", marginBottom:4 }}>
+          Confirmar compra
+        </h2>
+        <p style={{ color:C.inkSoft, fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
+          {invoice.store_name || invoice.store_fantasy || "Supermercado"}
+        </p>
+        <p style={{ color:C.stone, fontSize:11, marginTop:2 }}>
+          {fmtDate(invoice.issued_at)} {fmtTime(invoice.issued_at) && `às ${fmtTime(invoice.issued_at)}`} · {items.length} itens · R$ {Number(invoice.total_amount).toFixed(2).replace(".",",")}
+        </p>
+
+        {listName && (
+          <div style={{ marginTop:11, padding:"8px 11px", background:C.sand, borderRadius:8, fontSize:11, color:C.inkSoft }}>
+            Vinculando à lista <strong>{listName}</strong>
+          </div>
+        )}
+      </div>
+
+      {/* Botão Marcar/Desmarcar todos */}
+      <div style={{ padding:"12px 14px 6px", display:"flex", gap:8, alignItems:"center", justifyContent:"space-between" }}>
+        <p style={{ color:C.stone, fontSize:12, fontFamily:"'DM Sans',sans-serif" }}>
+          <strong style={{ color:C.graphite }}>{selectedCount}</strong> de {enrichedItems.length} selecionados
+        </p>
+        <button
+          onClick={() => toggleAll(!allSelected)}
+          style={{ padding:"6px 12px", borderRadius:8, background:allSelected ? C.linen : C.graphite, border:`1px solid ${allSelected ? C.linenDim : C.graphite}`, color:allSelected ? C.ink : C.sand, fontSize:11, fontWeight:500, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
+        >
+          {allSelected ? "Desmarcar todos" : "Marcar todos"}
+        </button>
+      </div>
+
+      {/* Itens cruzados com a lista */}
+      {inListItems.length > 0 && (
+        <div style={{ padding:"6px 14px 0" }}>
+          <p style={{ color:C.sageDeep, fontSize:10, textTransform:"uppercase", letterSpacing:1.5, fontWeight:600, marginBottom:8, paddingLeft:4 }}>
+            ✓ Já estão na sua lista ({inListItems.length})
+          </p>
+          {inListItems.map(renderItem)}
+        </div>
+      )}
+
+      {/* Itens extras */}
+      {extraItems.length > 0 && (
+        <div style={{ padding:"12px 14px 0" }}>
+          <p style={{ color:C.terracota, fontSize:10, textTransform:"uppercase", letterSpacing:1.5, fontWeight:600, marginBottom:8, paddingLeft:4 }}>
+            + {listName ? "Itens extras" : "Itens"} ({extraItems.length})
+          </p>
+          {extraItems.map(renderItem)}
+        </div>
+      )}
+
+      {/* Footer fixo com total e botão */}
+      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, padding:"14px 16px", background:C.sand, borderTop:`1px solid ${C.linen}`, zIndex:150, boxShadow:"0 -4px 20px rgba(0,0,0,0.06)" }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+          <p style={{ color:C.stone, fontSize:11, fontFamily:"'DM Sans',sans-serif" }}>Total selecionado</p>
+          <p style={{ color:C.graphite, fontSize:18, fontWeight:500, fontFamily:"'Fraunces',serif" }}>
+            R$ {selectedTotal.toFixed(2).replace(".",",")}
+          </p>
+        </div>
+        <button
+          onClick={() => onConfirm(enrichedItems.filter(i => i.selected))}
+          disabled={selectedCount === 0 || saving}
+          style={{ width:"100%", padding:"14px", background:selectedCount === 0 || saving ? C.linenDim : C.graphite, border:"none", borderRadius:12, color: selectedCount === 0 ? C.stoneSoft : C.sand, fontWeight:500, cursor:selectedCount === 0 || saving ? "not-allowed" : "pointer", fontSize:15, fontFamily:"'DM Sans',sans-serif" }}
+        >
+          {saving ? "Salvando..." : selectedCount === 0 ? "Nenhum item selecionado" : `Importar ${selectedCount} ${selectedCount === 1 ? "item" : "itens"}`}
+        </button>
+      </div>
+
+      {editing && (
+        <InvoiceItemEditor
+          item={editing}
+          onSave={updateItem}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ═════════════════════════════════════════════════════════════════════
 export default function App() {
@@ -1679,6 +2176,16 @@ export default function App() {
   const [listMembers, setListMembers] = useState({}); // { list_id: [members] }
   const [activeListMembers, setActiveListMembers] = useState([]);
   const [pendingInviteToken, setPendingInviteToken] = useState(null);
+
+  // ── Estados de registro de compra (NF-e) ───────────────────────────
+  // invoiceFlow: null | "choose" | "paste" | "preview"
+  const [invoiceFlow, setInvoiceFlow] = useState(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceData, setInvoiceData] = useState(null); // { invoice, items }
+  const [invoiceError, setInvoiceError] = useState(null);
+  const [duplicateInvoice, setDuplicateInvoice] = useState(null);
+  const [invoiceListContext, setInvoiceListContext] = useState(null); // { listId, listName, items }
+  const [invoiceSaving, setInvoiceSaving] = useState(false);
 
   // Detecta token de convite na URL
   useEffect(() => {
@@ -1895,6 +2402,186 @@ export default function App() {
     }
   };
 
+  // ─────────────────────────────────────────────────────────────────
+  // FUNÇÕES DE REGISTRO DE COMPRA (NF-e)
+  // ─────────────────────────────────────────────────────────────────
+
+  // Abre o fluxo de registro
+  const openRegisterPurchase = (listContext = null) => {
+    setInvoiceListContext(listContext);
+    setInvoiceFlow("choose");
+    setInvoiceError(null);
+  };
+
+  // Fecha o fluxo
+  const closeInvoiceFlow = () => {
+    setInvoiceFlow(null);
+    setInvoiceData(null);
+    setInvoiceError(null);
+    setDuplicateInvoice(null);
+    setInvoiceListContext(null);
+    setInvoiceLoading(false);
+    setInvoiceSaving(false);
+  };
+
+  // Processa link/chave colado
+  const handleInvoiceFetch = async (url) => {
+    setInvoiceLoading(true);
+    setInvoiceError(null);
+
+    try {
+      // 1. Extrai chave de acesso da URL para verificar duplicatas ANTES de chamar a API
+      const accessKey = (() => {
+        try {
+          const u = new URL(url);
+          const p = u.searchParams.get("p");
+          if (!p) return null;
+          const seg = p.split("|")[0] || p;
+          const k = seg.replace(/\D/g, "").slice(0, 44);
+          return k.length === 44 ? k : null;
+        } catch { return null; }
+      })();
+
+      if (accessKey && session?.user?.id) {
+        const { data: existing } = await supabase
+          .from("imported_invoices")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .eq("access_key", accessKey)
+          .maybeSingle();
+
+        if (existing) {
+          setDuplicateInvoice(existing);
+          setInvoiceLoading(false);
+          return;
+        }
+      }
+
+      // 2. Chama a função serverless
+      const res = await fetch("/api/invoice-parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        setInvoiceError(data.error || "Não foi possível processar a nota fiscal.");
+        setInvoiceLoading(false);
+        return;
+      }
+
+      // 3. Sucesso — vai para preview
+      setInvoiceData(data);
+      setInvoiceFlow("preview");
+      setInvoiceLoading(false);
+    } catch (err) {
+      console.error("[invoice fetch] erro:", err);
+      setInvoiceError("Erro de conexão. Verifique sua internet e tente novamente.");
+      setInvoiceLoading(false);
+    }
+  };
+
+  // Confirma a importação de itens selecionados
+  const handleInvoiceConfirm = async (selectedItems) => {
+    if (!session?.user?.id || !invoiceData) return;
+    setInvoiceSaving(true);
+
+    try {
+      const { invoice } = invoiceData;
+      const userId = session.user.id;
+
+      // 1. Salva a NF na tabela imported_invoices
+      const { data: savedInvoice, error: invErr } = await supabase
+        .from("imported_invoices")
+        .insert({
+          user_id: userId,
+          access_key: invoice.access_key,
+          store_name: invoice.store_name || invoice.store_fantasy,
+          store_cnpj: invoice.store_cnpj,
+          store_address: invoice.store_address,
+          total_amount: invoice.total_amount,
+          total_items: invoice.total_items,
+          issued_at: invoice.issued_at,
+          state: invoice.state,
+          source: "link",
+          raw_url: invoice.raw_url,
+        })
+        .select()
+        .single();
+
+      if (invErr) throw invErr;
+      const invoiceId = savedInvoice.id;
+      const purchasedAt = invoice.issued_at || new Date().toISOString();
+      const storeLabel = invoice.store_name || invoice.store_fantasy || "Loja física";
+
+      // 2. Para cada item selecionado:
+      //    a) Se está na lista, atualiza o item da lista (marca como comprado)
+      //    b) Salva no purchase_history
+      const itemsToInsertHistory = [];
+
+      for (const item of selectedItems) {
+        // (a) Se item está na lista atual, marca como comprado
+        if (item.in_list_item_id) {
+          await supabase.from("items").update({
+            done: true,
+            bought_at: "store",
+            bought_date: purchasedAt,
+            bought_price: item.total_price,
+            category: item.category,
+          }).eq("id", item.in_list_item_id);
+        }
+
+        // (b) Sempre adiciona ao histórico
+        itemsToInsertHistory.push({
+          user_id: userId,
+          item_name: item.name,
+          qty: String(item.qty),
+          unit: item.unit,
+          category: item.category,
+          store: "store",
+          price: item.total_price,
+          purchased_at: purchasedAt,
+          invoice_id: invoiceId,
+        });
+      }
+
+      if (itemsToInsertHistory.length > 0) {
+        const { error: histErr } = await supabase.from("purchase_history").insert(itemsToInsertHistory);
+        if (histErr) console.warn("Erro ao salvar histórico:", histErr);
+      }
+
+      // 3. Recarrega dados
+      await loadHistory();
+      if (invoiceListContext?.listId === activeList?.id && activeList) {
+        await loadItems(activeList.id);
+      }
+
+      // 4. Fecha o fluxo e mostra confirmação
+      const totalImported = selectedItems.length;
+      const totalValue = selectedItems.reduce((s, i) => s + (Number(i.total_price) || 0), 0);
+      closeInvoiceFlow();
+      setSavedMsg(true);
+      setTimeout(() => setSavedMsg(false), 3000);
+
+      // Vai pra aba histórico se foi compra avulsa
+      if (!invoiceListContext) {
+        setTab("history");
+      }
+    } catch (err) {
+      console.error("[invoice confirm] erro:", err);
+      alert("Erro ao salvar: " + (err.message || "tente novamente"));
+      setInvoiceSaving(false);
+    }
+  };
+
+  // Ver no histórico (caso de NF duplicada)
+  const handleViewDuplicateInHistory = () => {
+    closeInvoiceFlow();
+    setActiveList(null);
+    setTab("history");
+  };
+
   const handleLogout = async () => {
     if (!window.confirm("Tem certeza que deseja sair?")) return;
     await supabase.auth.signOut();
@@ -1986,16 +2673,63 @@ export default function App() {
           onMarkPurchased={markPurchased}
           onToggleAll={toggleAllItems}
           onRefresh={refreshActiveList}
+          onRegisterPurchase={()=>openRegisterPurchase({
+            listId: activeList.id,
+            listName: activeList.name,
+            items: items
+          })}
         />
       ) : (
         <>
           {tab==="lists" && <ScreenLists lists={lists} listCounts={listCounts} listMembers={listMembers} onOpen={setActiveList} onAdd={addList} onDelete={deleteList} profile={profile} currentUserId={session.user.id} />}
-          {tab==="history" && <ScreenHistory history={history} onDeleteRecord={deleteHistoryRecord} onDeleteMany={deleteHistoryMany} />}
+          {tab==="history" && <ScreenHistory history={history} onDeleteRecord={deleteHistoryRecord} onDeleteMany={deleteHistoryMany} onRegisterPurchase={()=>openRegisterPurchase()} />}
           {tab==="settings" && <ScreenSettings profile={profile} onSave={saveProfile} onLogout={handleLogout} />}
         </>
       )}
 
       <BottomNav tab={activeList?"lists":tab} setTab={(t)=>{ setActiveList(null); setTab(t); }} />
+
+      {/* ══════════════════════════════════════════════════════
+          FLUXO DE REGISTRO DE COMPRA (NF-e)
+      ══════════════════════════════════════════════════════ */}
+
+      {invoiceFlow === "choose" && (
+        <RegisterPurchaseModal
+          onClose={closeInvoiceFlow}
+          onChooseMethod={(method) => {
+            if (method === "paste") setInvoiceFlow("paste");
+          }}
+        />
+      )}
+
+      {invoiceFlow === "paste" && (
+        <PasteLinkModal
+          onClose={closeInvoiceFlow}
+          onSubmit={handleInvoiceFetch}
+          loading={invoiceLoading}
+          error={invoiceError}
+        />
+      )}
+
+      {duplicateInvoice && (
+        <InvoiceDuplicateModal
+          existing={duplicateInvoice}
+          onClose={closeInvoiceFlow}
+          onViewHistory={handleViewDuplicateInHistory}
+        />
+      )}
+
+      {invoiceFlow === "preview" && invoiceData && (
+        <InvoicePreviewScreen
+          invoice={invoiceData.invoice}
+          items={invoiceData.items}
+          listItems={invoiceListContext?.items || []}
+          listName={invoiceListContext?.listName || null}
+          onCancel={closeInvoiceFlow}
+          onConfirm={handleInvoiceConfirm}
+          saving={invoiceSaving}
+        />
+      )}
     </div>
   );
 }
