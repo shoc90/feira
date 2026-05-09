@@ -42,22 +42,29 @@ function initialFor(name, email) {
 // CATEGORIAS
 // ═════════════════════════════════════════════════════════════════════
 const CATEGORIES = [
-  { id:"hortifruti", label:"Hortifruti", emoji:"🥦", keywords:["alface","tomate","cenoura","batata","cebola","alho","limão","limao","laranja","banana","maçã","maca","uva","abacate","espinafre","brócolis","brocolis","couve","pepino","pimentão"] },
-  { id:"laticinios", label:"Laticínios", emoji:"🥛", keywords:["leite","queijo","iogurte","manteiga","requeijão","requeijao","creme de leite","nata","ovos","ovo","ricota"] },
-  { id:"carnes", label:"Carnes", emoji:"🥩", keywords:["carne","frango","peixe","linguiça","linguica","salsicha","bacon","presunto","bife","costela","filé","file","patinho","picanha","alcatra","salmão","salmao","atum","camarão","camarao"] },
-  { id:"padaria", label:"Padaria", emoji:"🍞", keywords:["pão","pao","bolo","biscoito","bolacha","torrada","croissant","broa","farinha"] },
-  { id:"limpeza", label:"Limpeza", emoji:"🧹", keywords:["sabão","sabao","detergente","desinfetante","cloro","multiuso","esponja","vassoura","rodo","pano","amaciante","limpador","papel higiênico","papel higienico"] },
-  { id:"higiene", label:"Higiene", emoji:"🧴", keywords:["shampoo","condicionador","sabonete","creme","desodorante","absorvente","fralda","escova","pasta de dente","creme dental","perfume","hidratante"] },
-  { id:"bebidas", label:"Bebidas", emoji:"🧃", keywords:["suco","refrigerante","água","agua","cerveja","vinho","café","cafe","chá","cha","energético","energetico"] },
-  { id:"congelados", label:"Congelados", emoji:"🧊", keywords:["pizza","lasanha","sorvete","hambúrguer","hamburguer","nuggets","empanado","congelado"] },
-  { id:"mercearia", label:"Mercearia", emoji:"🛒", keywords:["arroz","feijão","feijao","macarrão","macarrao","azeite","óleo","oleo","açúcar","acucar","sal","molho","extrato","atum","sardinha","milho","ervilha","vinagre","ketchup","maionese","mostarda","tempero","caldo"] },
+  { id:"hortifruti", label:"Hortifruti", emoji:"🥦", keywords:["alface","tomate","cenoura","batata","cebola","alho","limão","limao","banana","maçã","maca","uva","abacate","espinafre","brócolis","brocolis","couve","pepino","pimentão","pimentao","quiabo","abobrinha","abobora","beterraba","rabanete","mandioca","aipim","macaxeira","chuchu","berinjela","jiló","jilo","gengibre","manga","mamão","mamao","melão","melao","melancia","abacaxi","ananas","morango","pera","pêra","ameixa","kiwi","goiaba","caju","maracuja","maracujá","milho verde","quiabos","verdura","fruta","legume"] },
+  { id:"laticinios", label:"Laticínios", emoji:"🥛", keywords:["leite","queijo","iogurte","iog ","manteiga","requeijão","requeijao","creme de leite","creme leite","creme ric","creme ricot","nata","ovos","ovo","ricota","mussarela","muçarela","minas","coalho","parmesão","parmesao","cheddar","provolone","danone","yakult","achocolatado","achoc","ach ","chocolate em pó","choc em po","choc po","lacteo","leite po","leite em po","ovomaltine","nesquik","toddy"] },
+  { id:"carnes", label:"Carnes", emoji:"🥩", keywords:["carne","frango","fgo","fgo ","peixe","tilapia","linguiça","linguica","ling ","salsicha","bacon","presunto","bife","costela","filé","file","filezinho","filé de","patinho","picanha","alcatra","salmão","salmao","atum","camarão","camarao","peito de","coxa","sobrecoxa","sassami","carne moida","carne moída","cha de dentro","chã de dentro","contrafilé","contrafile","maminha","fraldinha","aperitivo","peru","chester","mortadela","salame","peito"] },
+  { id:"padaria", label:"Padaria", emoji:"🍞", keywords:["pão","pao","bolo","biscoito","bolacha","torrada","croissant","broa","farinha","panetone","rosca","sonho","salgadinho","pão de queijo","pao de queijo"] },
+  { id:"limpeza", label:"Limpeza", emoji:"🧹", keywords:["sabão","sabao","detergente","desinfetante","cloro","multiuso","esponja","vassoura","rodo","pano","amaciante","limpador","papel higiênico","papel higienico","papel toalha","alvejante","veja","ype","ypê","minuano","omo","ariel","brilhante","saco de lixo","lustra moveis"] },
+  { id:"higiene", label:"Higiene", emoji:"🧴", keywords:["shampoo","xampu","condicionador","sabonete","creme rosto","desodorante","absorvente","fralda","escova","pasta de dente","creme dental","perfume","hidratante","colônia","colonia","spray","loção","locao","talco","barbeador","fio dental","cotonete","algodão","algodao","gillette","colgate","oral b"] },
+  { id:"bebidas", label:"Bebidas", emoji:"🧃", keywords:["suco","refrigerante","refrig","coca","pepsi","fanta","guaraná","guarana","sprite","água ","agua ","cerveja","cerv","heineken","skol","brahma","budweiser","stella","corona","vinho","café","cafe","chá","energético","energetico","red bull","monster","drink","whisky","whiskey","vodka","cachaça","cachaca","gin","tequila","champagne","espumante","nat one","del valle","do bem","limonada","matte"] },
+  { id:"congelados", label:"Congelados", emoji:"🧊", keywords:["pizza","lasanha","sorvete","hambúrguer","hamburguer","nuggets","empanado","congelado","kibe","quibe","esfiha","pão de alho","pao de alho"] },
+  { id:"mercearia", label:"Mercearia", emoji:"🛒", keywords:["arroz","feijão","feijao","macarrão","macarrao","azeite","óleo","oleo","açúcar","acucar","molho","extrato","sardinha","milho","ervilha","vinagre","ketchup","maionese","mostarda","tempero","caldo","fermento","gelatina","açaí","acai","tapioca","fubá","fuba","amido","granola","aveia","cereal","cereais","goma","goma masc","mentos","bala","chiclete","doce","chocolate","amendoim","castanha","passas","azeitona"] },
   { id:"outros", label:"Outros", emoji:"📦", keywords:[] },
 ];
 
+// Ordem específica de avaliação para evitar conflitos de keywords
+// (ex: "suco de laranja" deve cair em bebidas, não em hortifruti)
+const CATEGORY_PRIORITY_ORDER = ["bebidas","laticinios","carnes","padaria","congelados","limpeza","higiene","mercearia","hortifruti"];
+
 function guessCategory(name) {
   const lower = name.toLowerCase();
-  for (const cat of CATEGORIES.slice(0, -1)) {
-    if (cat.keywords.some(k => lower.includes(k))) return cat.id;
+  // Avalia categorias na ordem prioritária para evitar conflitos
+  // (ex: "Suco de laranja" cai em bebidas antes de hortifruti)
+  for (const catId of CATEGORY_PRIORITY_ORDER) {
+    const cat = CATEGORIES.find(c => c.id === catId);
+    if (cat && cat.keywords.some(k => lower.includes(k))) return cat.id;
   }
   return "outros";
 }
@@ -1482,22 +1489,7 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany, onRegisterPurcha
         <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:26,fontWeight:500,color:C.graphite,letterSpacing:"-0.5px" }}>Compras realizadas</h2>
       </div>
 
-      {onRegisterPurchase && (
-        <div style={{ padding:"0 14px 10px" }}>
-          <button
-            onClick={()=>onRegisterPurchase()}
-            style={{
-              width:"100%", padding:"12px 14px",
-              background:`${C.sage}22`, border:`1px solid ${C.sage}55`, borderRadius:11,
-              color:C.graphite, fontSize:13, fontWeight:500, cursor:"pointer",
-              fontFamily:"'DM Sans',sans-serif",
-              display:"flex", alignItems:"center", justifyContent:"center", gap:8
-            }}
-          >
-            🧾 <span>Registrar compra avulsa</span>
-          </button>
-        </div>
-      )}
+      {/* FAB de Registrar compra avulsa fica no final, fora do fluxo de itens */}
 
       {history.length > 0 && (
         <div style={{ display:"flex",gap:8,padding:"0 14px 10px",alignItems:"center" }}>
@@ -1554,6 +1546,24 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany, onRegisterPurcha
             Apagar selecionados
           </button>
         </div>
+      )}
+
+      {onRegisterPurchase && !hasSelection && (
+        <button
+          onClick={()=>onRegisterPurchase()}
+          title="Registrar compra avulsa"
+          style={{
+            position:"fixed", bottom:80, right:16,
+            width:54, height:54, borderRadius:"50%",
+            background:C.sage, border:"none",
+            fontSize:24, cursor:"pointer",
+            boxShadow:`0 6px 20px ${C.sage}66, 0 2px 6px rgba(26,31,42,0.15)`,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            zIndex:100
+          }}
+        >
+          🧾
+        </button>
       )}
     </div>
   );
@@ -2058,7 +2068,10 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
             {it.name}
           </p>
           <p style={{ color:C.stoneSoft, fontSize:11, marginTop:1 }}>
-            {Number(it.qty).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {it.unit} · R$ {Number(it.total_price).toFixed(2).replace(".",",")}
+            {Number(it.qty).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {it.unit}
+            {it.unit_price > 0 && ` × R$ ${Number(it.unit_price).toFixed(2).replace(".",",")}`}
+            {" = "}
+            <strong style={{ color:C.ink }}>R$ {Number(it.total_price).toFixed(2).replace(".",",")}</strong>
             {it.in_list_item_id && it.in_list_item_name !== it.name && ` · ↔ "${it.in_list_item_name}"`}
           </p>
         </div>
@@ -2077,7 +2090,13 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
   };
 
   return (
-    <div style={{ minHeight:"100vh", background:C.sand, paddingBottom: 100 }}>
+    <div style={{
+      position:"fixed", top:0, left:"50%", transform:"translateX(-50%)",
+      width:"100%", maxWidth:480, height:"100vh",
+      background:C.sand, paddingBottom: 100, zIndex: 500,
+      overflowY:"auto", overflowX:"hidden",
+      fontFamily:"'DM Sans',sans-serif"
+    }}>
       {/* Header */}
       <div style={{ padding:"40px 16px 14px", background:C.linen }}>
         <button onClick={onCancel} style={{ background:"none",border:"none",color:C.stone,fontSize:13,cursor:"pointer",marginBottom:10,display:"flex",alignItems:"center",gap:5,fontFamily:"'DM Sans',sans-serif" }}>← Cancelar</button>
@@ -2086,7 +2105,7 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
           Confirmar compra
         </h2>
         <p style={{ color:C.inkSoft, fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
-          {invoice.store_name || invoice.store_fantasy || "Supermercado"}
+          {invoice.store_fantasy || invoice.store_name || "Supermercado"}
         </p>
         <p style={{ color:C.stone, fontSize:11, marginTop:2 }}>
           {fmtDate(invoice.issued_at)} {fmtTime(invoice.issued_at) && `às ${fmtTime(invoice.issued_at)}`} · {items.length} itens · R$ {Number(invoice.total_amount).toFixed(2).replace(".",",")}
@@ -2133,7 +2152,7 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
       )}
 
       {/* Footer fixo com total e botão */}
-      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, padding:"14px 16px", background:C.sand, borderTop:`1px solid ${C.linen}`, zIndex:150, boxShadow:"0 -4px 20px rgba(0,0,0,0.06)" }}>
+      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, padding:"14px 16px", background:C.sand, borderTop:`1px solid ${C.linen}`, zIndex:600, boxShadow:"0 -4px 20px rgba(0,0,0,0.06)", paddingBottom:"calc(14px + env(safe-area-inset-bottom))" }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
           <p style={{ color:C.stone, fontSize:11, fontFamily:"'DM Sans',sans-serif" }}>Total selecionado</p>
           <p style={{ color:C.graphite, fontSize:18, fontWeight:500, fontFamily:"'Fraunces',serif" }}>
@@ -2497,7 +2516,7 @@ export default function App() {
         .insert({
           user_id: userId,
           access_key: invoice.access_key,
-          store_name: invoice.store_name || invoice.store_fantasy,
+          store_name: invoice.store_fantasy || invoice.store_name,
           store_cnpj: invoice.store_cnpj,
           store_address: invoice.store_address,
           total_amount: invoice.total_amount,
@@ -2513,7 +2532,7 @@ export default function App() {
       if (invErr) throw invErr;
       const invoiceId = savedInvoice.id;
       const purchasedAt = invoice.issued_at || new Date().toISOString();
-      const storeLabel = invoice.store_name || invoice.store_fantasy || "Loja física";
+      const storeLabel = invoice.store_fantasy || invoice.store_name || "Loja física";
 
       // 2. Para cada item selecionado:
       //    a) Se está na lista, atualiza o item da lista (marca como comprado)
@@ -2687,7 +2706,7 @@ export default function App() {
         </>
       )}
 
-      <BottomNav tab={activeList?"lists":tab} setTab={(t)=>{ setActiveList(null); setTab(t); }} />
+      {!invoiceFlow && <BottomNav tab={activeList?"lists":tab} setTab={(t)=>{ setActiveList(null); setTab(t); }} />}
 
       {/* ══════════════════════════════════════════════════════
           FLUXO DE REGISTRO DE COMPRA (NF-e)
