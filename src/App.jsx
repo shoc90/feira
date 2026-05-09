@@ -2281,14 +2281,14 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
 
   return (
     <div style={{
-      position:"fixed", top:0, left:"50%", transform:"translateX(-50%)",
-      width:"100%", maxWidth:480, height:"100vh",
+      position:"fixed", top:0, bottom:0, left:"50%", transform:"translateX(-50%)",
+      width:"100%", maxWidth:480,
       background:C.sand, zIndex: 500,
       display:"flex", flexDirection:"column",
       fontFamily:"'DM Sans',sans-serif"
     }}>
       {/* Container scrollável (header + lista) */}
-      <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", paddingBottom: 16 }}>
+      <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", paddingBottom: 16, WebkitOverflowScrolling: "touch" }}>
       {/* Header */}
       <div style={{ padding:"40px 16px 14px", background:C.linen }}>
         <button onClick={onCancel} style={{ background:"none",border:"none",color:C.stone,fontSize:13,cursor:"pointer",marginBottom:10,display:"flex",alignItems:"center",gap:5,fontFamily:"'DM Sans',sans-serif" }}>← Cancelar</button>
