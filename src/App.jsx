@@ -1442,14 +1442,72 @@ function ScreenListDetail({ list, items, members, currentUserId, onBack, enabled
 // ═════════════════════════════════════════════════════════════════════
 // SCREEN: HISTORY
 // ═════════════════════════════════════════════════════════════════════
-function ScreenHistory({ history, onDeleteRecord, onDeleteMany, onRegisterPurchase }) {
+function ScreenHistory({ history, invoices = [], onDeleteRecord, onDeleteMany, onDeleteInvoice, onRegisterPurchase }) {
+  const [view, setView] = useState("compras"); // "compras" | "itens"
   const [storeFilter, setStoreFilter] = useState("all");
   const [sortBy, setSortBy] = useState("data");
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [expandedInvoices, setExpandedInvoices] = useState(new Set());
 
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"}) : "—";
+  const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "";
   const labelFor = (storeId) => storeId === "store" ? "Loja física" : (STORES.find(s=>s.id===storeId)?.label || "—");
   const emojiFor = (storeId) => storeId === "store" ? "🏪" : (STORES.find(s=>s.id===storeId)?.emoji || "🛒");
+
+  // ─── Agrupar histórico por NF (invoice_id) e itens avulsos
+  const groupedByInvoice = (() => {
+    const byInvoice = new Map();
+    const avulsos = [];
+    for (const h of history) {
+      if (h.invoice_id) {
+        if (!byInvoice.has(h.invoice_id)) byInvoice.set(h.invoice_id, []);
+        byInvoice.get(h.invoice_id).push(h);
+      } else {
+        avulsos.push(h);
+      }
+    }
+    // Junta com dados das NFs
+    const groups = invoices
+      .filter(inv => byInvoice.has(inv.id))
+      .map(inv => ({
+        type: "invoice",
+        id: inv.id,
+        invoice: inv,
+        items: byInvoice.get(inv.id) || [],
+      }));
+    // Adiciona avulsos como "compras avulsas" (uma por dia, agrupadas)
+    const avulsosByDate = new Map();
+    for (const av of avulsos) {
+      const dateKey = (av.purchased_at || "").split("T")[0] + "_" + (av.store || "store");
+      if (!avulsosByDate.has(dateKey)) avulsosByDate.set(dateKey, []);
+      avulsosByDate.get(dateKey).push(av);
+    }
+    for (const [key, items] of avulsosByDate.entries()) {
+      groups.push({
+        type: "avulso",
+        id: "avulso_" + key,
+        items,
+        date: items[0]?.purchased_at,
+        store: items[0]?.store,
+      });
+    }
+    // Ordena por data desc
+    groups.sort((a, b) => {
+      const da = a.type === "invoice" ? a.invoice.issued_at : a.date;
+      const db = b.type === "invoice" ? b.invoice.issued_at : b.date;
+      return new Date(db) - new Date(da);
+    });
+    return groups;
+  })();
+
+  const toggleExpanded = (id) => {
+    setExpandedInvoices(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const filteredAndSorted = (() => {
     let result = storeFilter==="all" ? history : history.filter(i=>i.store===storeFilter);
@@ -1484,58 +1542,190 @@ function ScreenHistory({ history, onDeleteRecord, onDeleteMany, onRegisterPurcha
 
   return (
     <div style={{ paddingBottom: hasSelection ? 140 : 84 }}>
-      <div style={{ padding:"44px 18px 18px" }}>
+      <div style={{ padding:"44px 18px 14px" }}>
         <p style={{ color:C.stone,fontSize:10,textTransform:"uppercase",letterSpacing:1.8,fontWeight:500,marginBottom:6 }}>Histórico</p>
         <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:26,fontWeight:500,color:C.graphite,letterSpacing:"-0.5px" }}>Compras realizadas</h2>
       </div>
 
-      {/* FAB de Registrar compra avulsa fica no final, fora do fluxo de itens */}
-
+      {/* Switch de visão: Por compras / Itens */}
       {history.length > 0 && (
-        <div style={{ display:"flex",gap:8,padding:"0 14px 10px",alignItems:"center" }}>
-          <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{ flex:1, padding:"7px 10px", background:C.linen, border:`1px solid ${C.linenDim}`, borderRadius:9, color:C.ink, fontSize:12, fontFamily:"'DM Sans',sans-serif", outline:"none", cursor:"pointer" }}>
-            <option value="data">📅 Data de compra</option>
-            <option value="alfabetica">🔤 Ordem alfabética</option>
-            <option value="categoria">📂 Por categoria</option>
-          </select>
-          <button onClick={toggleAll} style={{ padding:"7px 13px", borderRadius:9, flexShrink:0, background: allSelected ? C.linen : C.graphite, border:`1px solid ${allSelected ? C.linenDim : C.graphite}`, color: allSelected ? C.ink : C.sand, fontSize:12, fontWeight:500, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
-            {allSelected ? "Desmarcar todos" : "Selecionar todos"}
+        <div style={{ display:"flex", gap:6, padding:"0 14px 10px" }}>
+          <button
+            onClick={()=>setView("compras")}
+            style={{
+              flex:1, padding:"9px 10px", borderRadius:10,
+              background: view === "compras" ? C.graphite : C.linen,
+              border:`1px solid ${view === "compras" ? C.graphite : C.linenDim}`,
+              color: view === "compras" ? C.sand : C.stone,
+              fontSize:12, fontWeight:500, cursor:"pointer",
+              fontFamily:"'DM Sans',sans-serif"
+            }}
+          >
+            🧾 Por compras
+          </button>
+          <button
+            onClick={()=>setView("itens")}
+            style={{
+              flex:1, padding:"9px 10px", borderRadius:10,
+              background: view === "itens" ? C.graphite : C.linen,
+              border:`1px solid ${view === "itens" ? C.graphite : C.linenDim}`,
+              color: view === "itens" ? C.sand : C.stone,
+              fontSize:12, fontWeight:500, cursor:"pointer",
+              fontFamily:"'DM Sans',sans-serif"
+            }}
+          >
+            📋 Por itens
           </button>
         </div>
       )}
 
-      <div style={{ display:"flex",gap:6,padding:"0 14px 10px",overflowX:"auto" }}>
-        {[{id:"all",l:"Todas"},{id:"ml",l:"🛍️ Mercado Livre"},{id:"amazon",l:"📦 Amazon"},{id:"store",l:"🏪 Loja física"}].map(({id,l})=>(
-          <button key={id} onClick={()=>setStoreFilter(id)} style={{ padding:"7px 13px",borderRadius:18,flexShrink:0,background:storeFilter===id?C.graphite:"transparent",border:`1px solid ${storeFilter===id?C.graphite:C.linenDim}`,color:storeFilter===id?C.sand:C.stone,fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>{l}</button>
-        ))}
-      </div>
+      {/* ─── VISÃO POR COMPRAS (default) ─── */}
+      {view === "compras" && (
+        <div style={{ padding:"0 14px" }}>
+          {groupedByInvoice.length === 0 ? (
+            <div style={{ textAlign:"center",padding:"50px 20px",color:C.stoneSoft }}>
+              <div style={{ fontSize:38,marginBottom:10,opacity:0.5 }}>📋</div>
+              <p style={{ color:C.stone,fontSize:14 }}>Nenhuma compra registrada</p>
+              <p style={{ color:C.stoneSoft,fontSize:12,marginTop:6,lineHeight:1.5 }}>
+                Toque em <strong>🧾</strong> abaixo para registrar uma nota fiscal.
+              </p>
+            </div>
+          ) : groupedByInvoice.map(group => {
+            const isExpanded = expandedInvoices.has(group.id);
+            const isInvoice = group.type === "invoice";
+            const inv = isInvoice ? group.invoice : null;
+            const items = group.items;
+            const totalCalc = items.reduce((s, i) => s + (Number(i.price) || 0), 0);
+            const totalDisplay = isInvoice ? Number(inv.total_amount || totalCalc) : totalCalc;
 
-      <div style={{ padding:"0 14px" }}>
-        {filteredAndSorted.length===0 ? (
-          <div style={{ textAlign:"center",padding:"50px 20px",color:C.stoneSoft }}>
-            <div style={{ fontSize:38,marginBottom:10,opacity:0.5 }}>📋</div>
-            <p style={{ color:C.stone,fontSize:14 }}>Nenhuma compra registrada</p>
-          </div>
-        ) : (
-          filteredAndSorted.map((item)=>{
-            const isSelected = selectedIds.has(item.id);
+            const headerBg = isExpanded ? C.linen : "#FAF8F4";
+            const dateIso = isInvoice ? inv.issued_at : group.date;
+
             return (
-              <div key={item.id} style={{ background: isSelected ? `${C.sage}22` : "#FAF8F4", borderRadius:13, padding:"13px 14px", marginBottom:8, border:`1px solid ${isSelected ? C.sage : C.linen}`, display:"flex", alignItems:"center", gap:12, transition:"background 0.15s" }}>
-                <input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(item.id)} style={{ width:18,height:18,accentColor:C.sage,cursor:"pointer",margin:0,flexShrink:0 }} />
-                <div style={{ width:38,height:38,borderRadius:10,background:C.linen,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>{emojiFor(item.store)}</div>
-                <div style={{ flex:1,minWidth:0 }}>
-                  <p style={{ fontWeight:500,fontSize:14,color:C.graphite,marginBottom:2,fontFamily:"'DM Sans',sans-serif" }}>{item.item_name}</p>
-                  <p style={{ color:C.stone,fontSize:11 }}>
-                    {item.qty} {item.unit} · {labelFor(item.store)} · {fmtDate(item.purchased_at)}
-                    {item.price ? ` · R$ ${Number(item.price).toFixed(2).replace(".", ",")}` : ""}
-                  </p>
+              <div key={group.id} style={{ marginBottom:8, background:headerBg, borderRadius:13, border:`1px solid ${C.linen}`, overflow:"hidden", transition:"background 0.15s" }}>
+                {/* Cabeçalho clicável */}
+                <div
+                  onClick={()=>toggleExpanded(group.id)}
+                  style={{
+                    display:"flex", alignItems:"center", gap:12, padding:"13px 14px",
+                    cursor:"pointer"
+                  }}
+                >
+                  <div style={{ width:42, height:42, borderRadius:10, background:C.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>
+                    {isInvoice ? "🧾" : emojiFor(group.store)}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <p style={{ fontWeight:500, fontSize:14, color:C.graphite, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      {isInvoice
+                        ? (inv.store_name || "Compra")
+                        : `${labelFor(group.store)} · ${fmtDate(group.date)}`
+                      }
+                    </p>
+                    <p style={{ color:C.stone, fontSize:11, marginTop:1 }}>
+                      {fmtDate(dateIso)}{fmtTime(dateIso) && ` às ${fmtTime(dateIso)}`}
+                      {" · "}
+                      {items.length} {items.length === 1 ? "item" : "itens"}
+                      {totalDisplay > 0 && ` · R$ ${totalDisplay.toFixed(2).replace(".",",")}`}
+                    </p>
+                  </div>
+                  <span style={{ color:C.stoneSoft, fontSize:14, transition:"transform 0.2s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
                 </div>
-                <button onClick={()=>{ if (window.confirm("Apagar este registro do histórico?")) onDeleteRecord(item.id); }} style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:6,flexShrink:0 }} title="Apagar">✕</button>
+
+                {/* Itens expandidos */}
+                {isExpanded && (
+                  <div style={{ padding:"4px 14px 12px", borderTop:`1px solid ${C.linenDim}` }}>
+                    {items.map(item => (
+                      <div key={item.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:`1px solid ${C.linen}` }}>
+                        <div style={{ width:30, height:30, borderRadius:8, background:C.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>
+                          {(CATEGORIES.find(c => c.id === item.category) || CATEGORIES[9]).emoji}
+                        </div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <p style={{ color:C.ink, fontSize:13, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            {item.item_name}
+                          </p>
+                          <p style={{ color:C.stoneSoft, fontSize:11, marginTop:1 }}>
+                            {item.qty} {item.unit}
+                            {item.price ? ` · R$ ${Number(item.price).toFixed(2).replace(".",",")}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                    {/* Botão apagar a compra inteira (só pra NF) */}
+                    {isInvoice && (
+                      <button
+                        onClick={()=>{
+                          if (window.confirm(`Apagar esta compra (${inv.store_name || "NF"}) e os ${items.length} itens do histórico?`)) {
+                            onDeleteInvoice(inv.id);
+                          }
+                        }}
+                        style={{
+                          width:"100%", marginTop:10, padding:"9px",
+                          background:"transparent", border:`1px solid ${C.danger}55`,
+                          borderRadius:9, color:C.danger, fontSize:12, fontWeight:500,
+                          cursor:"pointer", fontFamily:"'DM Sans',sans-serif"
+                        }}
+                      >
+                        Apagar compra inteira
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
+
+      {/* ─── VISÃO POR ITENS (lista corrida) ─── */}
+      {view === "itens" && (
+        <>
+          {history.length > 0 && (
+            <div style={{ display:"flex",gap:8,padding:"0 14px 10px",alignItems:"center" }}>
+              <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{ flex:1, padding:"7px 10px", background:C.linen, border:`1px solid ${C.linenDim}`, borderRadius:9, color:C.ink, fontSize:12, fontFamily:"'DM Sans',sans-serif", outline:"none", cursor:"pointer" }}>
+                <option value="data">📅 Data de compra</option>
+                <option value="alfabetica">🔤 Ordem alfabética</option>
+                <option value="categoria">📂 Por categoria</option>
+              </select>
+              <button onClick={toggleAll} style={{ padding:"7px 13px", borderRadius:9, flexShrink:0, background: allSelected ? C.linen : C.graphite, border:`1px solid ${allSelected ? C.linenDim : C.graphite}`, color: allSelected ? C.ink : C.sand, fontSize:12, fontWeight:500, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
+                {allSelected ? "Desmarcar todos" : "Selecionar todos"}
+              </button>
+            </div>
+          )}
+
+          <div style={{ display:"flex",gap:6,padding:"0 14px 10px",overflowX:"auto" }}>
+            {[{id:"all",l:"Todas"},{id:"ml",l:"🛍️ Mercado Livre"},{id:"amazon",l:"📦 Amazon"},{id:"store",l:"🏪 Loja física"}].map(({id,l})=>(
+              <button key={id} onClick={()=>setStoreFilter(id)} style={{ padding:"7px 13px",borderRadius:18,flexShrink:0,background:storeFilter===id?C.graphite:"transparent",border:`1px solid ${storeFilter===id?C.graphite:C.linenDim}`,color:storeFilter===id?C.sand:C.stone,fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>{l}</button>
+            ))}
+          </div>
+
+          <div style={{ padding:"0 14px" }}>
+            {filteredAndSorted.length===0 ? (
+              <div style={{ textAlign:"center",padding:"50px 20px",color:C.stoneSoft }}>
+                <div style={{ fontSize:38,marginBottom:10,opacity:0.5 }}>📋</div>
+                <p style={{ color:C.stone,fontSize:14 }}>Nenhuma compra registrada</p>
+              </div>
+            ) : (
+              filteredAndSorted.map((item)=>{
+                const isSelected = selectedIds.has(item.id);
+                return (
+                  <div key={item.id} style={{ background: isSelected ? `${C.sage}22` : "#FAF8F4", borderRadius:13, padding:"13px 14px", marginBottom:8, border:`1px solid ${isSelected ? C.sage : C.linen}`, display:"flex", alignItems:"center", gap:12, transition:"background 0.15s" }}>
+                    <input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(item.id)} style={{ width:18,height:18,accentColor:C.sage,cursor:"pointer",margin:0,flexShrink:0 }} />
+                    <div style={{ width:38,height:38,borderRadius:10,background:C.linen,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>{emojiFor(item.store)}</div>
+                    <div style={{ flex:1,minWidth:0 }}>
+                      <p style={{ fontWeight:500,fontSize:14,color:C.graphite,marginBottom:2,fontFamily:"'DM Sans',sans-serif" }}>{item.item_name}</p>
+                      <p style={{ color:C.stone,fontSize:11 }}>
+                        {item.qty} {item.unit} · {labelFor(item.store)} · {fmtDate(item.purchased_at)}
+                        {item.price ? ` · R$ ${Number(item.price).toFixed(2).replace(".", ",")}` : ""}
+                      </p>
+                    </div>
+                    <button onClick={()=>{ if (window.confirm("Apagar este registro do histórico?")) onDeleteRecord(item.id); }} style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:6,flexShrink:0 }} title="Apagar">✕</button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </>
+      )}
 
       {hasSelection && (
         <div style={{ position:"fixed", bottom:56, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, padding:"12px 16px", background:C.sand, borderTop:`1px solid ${C.linen}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, zIndex:150, boxShadow:"0 -4px 20px rgba(0,0,0,0.06)" }}>
@@ -2093,10 +2283,12 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
     <div style={{
       position:"fixed", top:0, left:"50%", transform:"translateX(-50%)",
       width:"100%", maxWidth:480, height:"100vh",
-      background:C.sand, paddingBottom: 100, zIndex: 500,
-      overflowY:"auto", overflowX:"hidden",
+      background:C.sand, zIndex: 500,
+      display:"flex", flexDirection:"column",
       fontFamily:"'DM Sans',sans-serif"
     }}>
+      {/* Container scrollável (header + lista) */}
+      <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", paddingBottom: 16 }}>
       {/* Header */}
       <div style={{ padding:"40px 16px 14px", background:C.linen }}>
         <button onClick={onCancel} style={{ background:"none",border:"none",color:C.stone,fontSize:13,cursor:"pointer",marginBottom:10,display:"flex",alignItems:"center",gap:5,fontFamily:"'DM Sans',sans-serif" }}>← Cancelar</button>
@@ -2150,9 +2342,10 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
           {extraItems.map(renderItem)}
         </div>
       )}
+      </div>{/* fim do container scrollável */}
 
-      {/* Footer fixo com total e botão */}
-      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, padding:"14px 16px", background:C.sand, borderTop:`1px solid ${C.linen}`, zIndex:600, boxShadow:"0 -4px 20px rgba(0,0,0,0.06)", paddingBottom:"calc(14px + env(safe-area-inset-bottom))" }}>
+      {/* Footer fixo no rodapé do overlay */}
+      <div style={{ flexShrink:0, padding:"14px 16px", background:C.sand, borderTop:`1px solid ${C.linen}`, boxShadow:"0 -4px 20px rgba(0,0,0,0.06)", paddingBottom:"calc(14px + env(safe-area-inset-bottom))" }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
           <p style={{ color:C.stone, fontSize:11, fontFamily:"'DM Sans',sans-serif" }}>Total selecionado</p>
           <p style={{ color:C.graphite, fontSize:18, fontWeight:500, fontFamily:"'Fraunces',serif" }}>
@@ -2189,6 +2382,7 @@ export default function App() {
   const [lists, setLists] = useState([]);
   const [items, setItems] = useState([]);
   const [history, setHistory] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [activeList, setActiveList] = useState(null);
   const [tab, setTab] = useState("lists");
   const [savedMsg, setSavedMsg] = useState(false);
@@ -2289,6 +2483,9 @@ export default function App() {
   const loadHistory = async () => {
     const { data } = await supabase.from("purchase_history").select("*").order("purchased_at", { ascending: false }).limit(200);
     if (data) setHistory(data);
+    // Carrega também as NFs importadas
+    const { data: invs } = await supabase.from("imported_invoices").select("*").order("imported_at", { ascending: false }).limit(100);
+    if (invs) setInvoices(invs);
   };
 
   useEffect(() => {
@@ -2410,6 +2607,17 @@ export default function App() {
   const deleteHistoryMany = async (ids) => {
     await supabase.from("purchase_history").delete().in("id", ids);
     setHistory(prev => prev.filter(h => !ids.includes(h.id)));
+  };
+
+  // Apaga uma NF inteira (e todos os registros do histórico ligados a ela)
+  const deleteInvoiceAndItems = async (invoiceId) => {
+    // 1. Apaga registros do histórico ligados a esta NF
+    await supabase.from("purchase_history").delete().eq("invoice_id", invoiceId);
+    // 2. Apaga a NF
+    await supabase.from("imported_invoices").delete().eq("id", invoiceId);
+    // 3. Atualiza states locais
+    setHistory(prev => prev.filter(h => h.invoice_id !== invoiceId));
+    setInvoices(prev => prev.filter(i => i.id !== invoiceId));
   };
 
   const saveProfile = async (updates) => {
@@ -2701,7 +2909,7 @@ export default function App() {
       ) : (
         <>
           {tab==="lists" && <ScreenLists lists={lists} listCounts={listCounts} listMembers={listMembers} onOpen={setActiveList} onAdd={addList} onDelete={deleteList} profile={profile} currentUserId={session.user.id} />}
-          {tab==="history" && <ScreenHistory history={history} onDeleteRecord={deleteHistoryRecord} onDeleteMany={deleteHistoryMany} onRegisterPurchase={()=>openRegisterPurchase()} />}
+          {tab==="history" && <ScreenHistory history={history} invoices={invoices} onDeleteRecord={deleteHistoryRecord} onDeleteMany={deleteHistoryMany} onDeleteInvoice={deleteInvoiceAndItems} onRegisterPurchase={()=>openRegisterPurchase()} />}
           {tab==="settings" && <ScreenSettings profile={profile} onSave={saveProfile} onLogout={handleLogout} />}
         </>
       )}
