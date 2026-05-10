@@ -2205,11 +2205,20 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
 
   const [editing, setEditing] = useState(null);
 
+  // Escolha do destino dos itens quando dentro de uma lista
+  // null = usuário ainda não escolheu | "list+history" | "history-only"
+  const [targetMode, setTargetMode] = useState(null);
+  const requiresChoice = !!listName;  // só exige escolha se está dentro de uma lista
+  const choiceMade = !requiresChoice || targetMode !== null;
+
   const inListItems = enrichedItems.filter(i => i.in_list_item_id);
   const extraItems = enrichedItems.filter(i => !i.in_list_item_id);
 
   const selectedCount = enrichedItems.filter(i => i.selected).length;
   const selectedTotal = enrichedItems.filter(i => i.selected).reduce((s, i) => s + (Number(i.total_price) || 0), 0);
+  const selectedGross = enrichedItems.filter(i => i.selected).reduce((s, i) => s + (Number(i.gross_total) || Number(i.total_price) || 0), 0);
+  const selectedDiscount = Math.max(0, selectedGross - selectedTotal);
+  const totalDiscountInInvoice = items.reduce((s, i) => s + (Number(i.discount) || 0), 0);
 
   const toggleSelect = (id) => {
     setEnrichedItems(prev => prev.map(i => i.id === id ? { ...i, selected: !i.selected } : i));
@@ -2261,9 +2270,23 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
             {Number(it.qty).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {it.unit}
             {it.unit_price > 0 && ` × R$ ${Number(it.unit_price).toFixed(2).replace(".",",")}`}
             {" = "}
-            <strong style={{ color:C.ink }}>R$ {Number(it.total_price).toFixed(2).replace(".",",")}</strong>
+            {it.discount > 0 ? (
+              <>
+                <span style={{ textDecoration:"line-through", color:C.stoneSoft, marginRight:4 }}>
+                  R$ {Number(it.gross_total).toFixed(2).replace(".",",")}
+                </span>
+                <strong style={{ color:C.sageDeep }}>R$ {Number(it.total_price).toFixed(2).replace(".",",")}</strong>
+              </>
+            ) : (
+              <strong style={{ color:C.ink }}>R$ {Number(it.total_price).toFixed(2).replace(".",",")}</strong>
+            )}
             {it.in_list_item_id && it.in_list_item_name !== it.name && ` · ↔ "${it.in_list_item_name}"`}
           </p>
+          {it.discount > 0 && (
+            <p style={{ color:C.terracota, fontSize:10, marginTop:2, fontWeight:500 }}>
+              💰 Desconto de R$ {Number(it.discount).toFixed(2).replace(".",",")}
+            </p>
+          )}
         </div>
 
         <button
@@ -2302,6 +2325,11 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
         <p style={{ color:C.stone, fontSize:11, marginTop:2 }}>
           {fmtDate(invoice.issued_at)} {fmtTime(invoice.issued_at) && `às ${fmtTime(invoice.issued_at)}`} · {items.length} itens · R$ {Number(invoice.total_amount).toFixed(2).replace(".",",")}
         </p>
+        {totalDiscountInInvoice > 0 && (
+          <p style={{ color:C.terracota, fontSize:11, marginTop:4, fontWeight:500 }}>
+            💰 Você economizou R$ {totalDiscountInInvoice.toFixed(2).replace(".",",")} em descontos
+          </p>
+        )}
 
         {listName && (
           <div style={{ marginTop:11, padding:"8px 11px", background:C.sand, borderRadius:8, fontSize:11, color:C.inkSoft }}>
@@ -2346,6 +2374,60 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
 
       {/* Footer fixo no rodapé do overlay */}
       <div style={{ flexShrink:0, padding:"14px 16px", background:C.sand, borderTop:`1px solid ${C.linen}`, boxShadow:"0 -4px 20px rgba(0,0,0,0.06)", paddingBottom:"calc(14px + env(safe-area-inset-bottom))" }}>
+
+        {/* Seletor de destino (só quando dentro de uma lista) */}
+        {requiresChoice && (
+          <div style={{ marginBottom:12 }}>
+            <p style={{ color:C.stone, fontSize:10, textTransform:"uppercase", letterSpacing:1.2, fontWeight:600, marginBottom:8 }}>
+              Onde quer registrar?
+            </p>
+            <div style={{ display:"flex", gap:8 }}>
+              <button
+                onClick={() => setTargetMode("list+history")}
+                style={{
+                  flex:1, padding:"11px 8px",
+                  background: targetMode === "list+history" ? `${C.sage}33` : C.linen,
+                  border:`1.5px solid ${targetMode === "list+history" ? C.sage : C.linenDim}`,
+                  borderRadius:10,
+                  color: targetMode === "list+history" ? C.graphite : C.stone,
+                  fontSize:12, fontWeight:500, cursor:"pointer", textAlign:"left",
+                  fontFamily:"'DM Sans',sans-serif",
+                  transition:"all 0.15s"
+                }}
+              >
+                <div style={{ fontWeight:600, marginBottom:2, display:"flex", alignItems:"center", gap:5 }}>
+                  {targetMode === "list+history" && <span style={{ color:C.sageDeep }}>✓</span>}
+                  Adicionar à lista + histórico
+                </div>
+                <div style={{ fontSize:10, color:C.stoneSoft, lineHeight:1.3 }}>
+                  Itens vão pra "{listName}" como comprados e ficam no histórico
+                </div>
+              </button>
+              <button
+                onClick={() => setTargetMode("history-only")}
+                style={{
+                  flex:1, padding:"11px 8px",
+                  background: targetMode === "history-only" ? `${C.sage}33` : C.linen,
+                  border:`1.5px solid ${targetMode === "history-only" ? C.sage : C.linenDim}`,
+                  borderRadius:10,
+                  color: targetMode === "history-only" ? C.graphite : C.stone,
+                  fontSize:12, fontWeight:500, cursor:"pointer", textAlign:"left",
+                  fontFamily:"'DM Sans',sans-serif",
+                  transition:"all 0.15s"
+                }}
+              >
+                <div style={{ fontWeight:600, marginBottom:2, display:"flex", alignItems:"center", gap:5 }}>
+                  {targetMode === "history-only" && <span style={{ color:C.sageDeep }}>✓</span>}
+                  Apenas histórico
+                </div>
+                <div style={{ fontSize:10, color:C.stoneSoft, lineHeight:1.3 }}>
+                  Itens só ficam no histórico, sem mudar a lista
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
+
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
           <p style={{ color:C.stone, fontSize:11, fontFamily:"'DM Sans',sans-serif" }}>Total selecionado</p>
           <p style={{ color:C.graphite, fontSize:18, fontWeight:500, fontFamily:"'Fraunces',serif" }}>
@@ -2353,11 +2435,11 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
           </p>
         </div>
         <button
-          onClick={() => onConfirm(enrichedItems.filter(i => i.selected))}
-          disabled={selectedCount === 0 || saving}
-          style={{ width:"100%", padding:"14px", background:selectedCount === 0 || saving ? C.linenDim : C.graphite, border:"none", borderRadius:12, color: selectedCount === 0 ? C.stoneSoft : C.sand, fontWeight:500, cursor:selectedCount === 0 || saving ? "not-allowed" : "pointer", fontSize:15, fontFamily:"'DM Sans',sans-serif" }}
+          onClick={() => onConfirm(enrichedItems.filter(i => i.selected), targetMode)}
+          disabled={selectedCount === 0 || saving || !choiceMade}
+          style={{ width:"100%", padding:"14px", background:(selectedCount === 0 || saving || !choiceMade) ? C.linenDim : C.graphite, border:"none", borderRadius:12, color: (selectedCount === 0 || !choiceMade) ? C.stoneSoft : C.sand, fontWeight:500, cursor:(selectedCount === 0 || saving || !choiceMade) ? "not-allowed" : "pointer", fontSize:15, fontFamily:"'DM Sans',sans-serif" }}
         >
-          {saving ? "Salvando..." : selectedCount === 0 ? "Nenhum item selecionado" : `Importar ${selectedCount} ${selectedCount === 1 ? "item" : "itens"}`}
+          {saving ? "Salvando..." : selectedCount === 0 ? "Nenhum item selecionado" : !choiceMade ? "Escolha onde registrar" : `Importar ${selectedCount} ${selectedCount === 1 ? "item" : "itens"}`}
         </button>
       </div>
 
@@ -2710,9 +2792,16 @@ export default function App() {
   };
 
   // Confirma a importação de itens selecionados
-  const handleInvoiceConfirm = async (selectedItems) => {
+  const handleInvoiceConfirm = async (selectedItems, targetMode) => {
     if (!session?.user?.id || !invoiceData) return;
     setInvoiceSaving(true);
+
+    // Se está dentro de uma lista, decide o modo:
+    //   "list+history" → atualiza/cria itens na lista + adiciona no histórico
+    //   "history-only" → só adiciona no histórico, não mexe na lista
+    // Se NÃO está dentro de uma lista (compra avulsa), targetMode é null e só vai pra histórico.
+    const isListPurchase = !!invoiceListContext?.listId;
+    const shouldAddToList = isListPurchase && targetMode === "list+history";
 
     try {
       const { invoice } = invoiceData;
@@ -2743,13 +2832,14 @@ export default function App() {
       const storeLabel = invoice.store_fantasy || invoice.store_name || "Loja física";
 
       // 2. Para cada item selecionado:
-      //    a) Se está na lista, atualiza o item da lista (marca como comprado)
-      //    b) Salva no purchase_history
+      //    Sempre vai pro histórico.
+      //    Se shouldAddToList: atualiza item existente na lista (matched) ou cria novo já comprado.
       const itemsToInsertHistory = [];
+      const itemsToCreateInList = [];
 
       for (const item of selectedItems) {
-        // (a) Se item está na lista atual, marca como comprado
-        if (item.in_list_item_id) {
+        // (a) Se vamos adicionar à lista E o item já está na lista, atualiza
+        if (shouldAddToList && item.in_list_item_id) {
           await supabase.from("items").update({
             done: true,
             bought_at: "store",
@@ -2759,7 +2849,23 @@ export default function App() {
           }).eq("id", item.in_list_item_id);
         }
 
-        // (b) Sempre adiciona ao histórico
+        // (b) Se vamos adicionar à lista E o item NÃO está na lista, cria item novo já comprado
+        if (shouldAddToList && !item.in_list_item_id) {
+          itemsToCreateInList.push({
+            list_id: invoiceListContext.listId,
+            user_id: userId,
+            name: item.name,
+            qty: String(item.qty),
+            unit: item.unit,
+            category: item.category,
+            done: true,
+            bought_at: "store",
+            bought_date: purchasedAt,
+            bought_price: item.total_price,
+          });
+        }
+
+        // (c) Sempre adiciona ao histórico
         itemsToInsertHistory.push({
           user_id: userId,
           item_name: item.name,
@@ -2771,6 +2877,12 @@ export default function App() {
           purchased_at: purchasedAt,
           invoice_id: invoiceId,
         });
+      }
+
+      // Cria os itens novos na lista em batch
+      if (itemsToCreateInList.length > 0) {
+        const { error: itemsErr } = await supabase.from("items").insert(itemsToCreateInList);
+        if (itemsErr) console.warn("Erro ao criar itens na lista:", itemsErr);
       }
 
       if (itemsToInsertHistory.length > 0) {
@@ -2791,8 +2903,8 @@ export default function App() {
       setSavedMsg(true);
       setTimeout(() => setSavedMsg(false), 3000);
 
-      // Vai pra aba histórico se foi compra avulsa
-      if (!invoiceListContext) {
+      // Vai pra aba histórico se foi compra avulsa OU se escolheu "só histórico"
+      if (!invoiceListContext || targetMode === "history-only") {
         setTab("history");
       }
     } catch (err) {
