@@ -2183,25 +2183,138 @@ function InvoiceItemEditor({ item, onSave, onClose }) {
 // ═════════════════════════════════════════════════════════════════════
 function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, onConfirm, saving }) {
   // Cada item tem: { ...invoice_item, category (auto), selected (true), in_list_item_id (uuid|null) }
-  const [enrichedItems, setEnrichedItems] = useState(() =>
-    items.map(it => {
-      // Cruzamento simples por nome (ignora caso e espaços extras)
-      const normalize = s => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
-      const matchedListItem = (listItems || []).find(li =>
-        normalize(li.name) === normalize(it.name) ||
-        normalize(it.name).includes(normalize(li.name)) ||
-        normalize(li.name).includes(normalize(it.name))
-      );
+  const [enrichedItems, setEnrichedItems] = useState(() => {
+    // Algoritmo de cruzamento inteligente:
+    //  1. Normaliza nomes (lowercase, sem acentos, sem caracteres especiais)
+    //  2. Aplica sinônimos comuns de NFs (fgo→frango, iog→iogurte, etc)
+    //  3. Calcula score de similaridade entre cada par (NF x lista)
+    //  4. Resolve conflitos: cada item da lista só pode ser matcheado UMA vez,
+    //     com prioridade pro par de maior score
+    //  5. Mantém o nome da NF como "nome técnico" mas exibe o nome da lista
+
+    // Dicionário de sinônimos: termos da NF → termos do dia a dia
+    const synonymsDict = {
+      "fgo": "frango", "fg": "frango",
+      "iog": "iogurte",
+      "cerv": "cerveja",
+      "refrig": "refrigerante",
+      "achoc": "achocolatado", "ach": "achocolatado",
+      "choc": "chocolate",
+      "qa": "", "qj": "queijo",
+      "ling": "linguiça",
+      "ovo verm": "ovo", "ovo bra": "ovo", "vermelho c": "",
+      "sad": "sadia",
+      "nat": "natural",
+      "lrnj": "laranja", "lrj": "laranja",
+      "mant": "manteiga",
+      "manjar": "",
+      "presid": "president",
+      "trad": "tradicional",
+      "int": "integral",
+      "dan": "danone",
+      "tsonia": "",
+      "ricot": "ricota",
+      "padrao": "padrão",
+      "tilapia": "tilapia",
+      "filezinho": "file",
+      "pao f orig": "pão francês",
+      "pao": "pão",
+      "minhoto": "",
+      "alcool": "álcool",
+      "granel": "",
+      "extra": "",
+      "kg": "", "g": "", "ml": "", "lt": "", "un": "",
+      "betania": "",
+    };
+
+    // Remove acentos (Á → A, ç → c)
+    const removeAccents = s => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    // Normaliza: lower, sem acentos, sem caracteres não alfabéticos
+    const normalize = s =>
+      removeAccents(s || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    // Aplica sinônimos: substitui termos abreviados da NF pelos amigáveis
+    const expandSynonyms = s => {
+      let result = " " + normalize(s) + " ";
+      for (const [abbr, full] of Object.entries(synonymsDict)) {
+        const re = new RegExp(`\\s${abbr}\\s`, "g");
+        result = result.replace(re, ` ${full} `);
+      }
+      return result.replace(/\s+/g, " ").trim();
+    };
+
+    // Tokeniza em palavras significativas (mais de 2 letras, sem ruído numérico)
+    const tokenize = s =>
+      expandSynonyms(s)
+        .split(" ")
+        .filter(t => t.length > 2 && !/^\d+$/.test(t));
+
+    // Calcula similaridade entre duas listas de tokens (Jaccard simplificado + bonus)
+    const scoreMatch = (listTokens, nfTokens) => {
+      if (listTokens.length === 0 || nfTokens.length === 0) return 0;
+      const listSet = new Set(listTokens);
+      const nfSet = new Set(nfTokens);
+      let common = 0;
+      for (const t of listSet) {
+        if (nfSet.has(t)) common += 1;
+        else {
+          // Match parcial: token da lista está contido em algum da NF
+          for (const nt of nfTokens) {
+            if (nt.startsWith(t) || t.startsWith(nt)) { common += 0.5; break; }
+          }
+        }
+      }
+      // Score: razão entre tokens comuns e tamanho da lista (priorizando matches da lista inteira)
+      const score = common / listTokens.length;
+      // Bonus se TODOS os tokens da lista estão na NF
+      const allMatched = listTokens.every(t => nfSet.has(t) || nfTokens.some(nt => nt.startsWith(t) || t.startsWith(nt)));
+      return allMatched ? score + 1 : score;
+    };
+
+    // Para cada item da NF, calcula score com cada item da lista
+    const candidates = []; // { nfIdx, listIdx, score }
+    items.forEach((it, nfIdx) => {
+      const nfTokens = tokenize(it.name);
+      (listItems || []).forEach((li, listIdx) => {
+        const listTokens = tokenize(li.name);
+        const score = scoreMatch(listTokens, nfTokens);
+        if (score >= 0.5) candidates.push({ nfIdx, listIdx, score });
+      });
+    });
+
+    // Ordena candidatos por score (maior primeiro) e atribui sem repetir
+    candidates.sort((a, b) => b.score - a.score);
+    const usedListIdx = new Set();
+    const usedNfIdx = new Set();
+    const matches = {}; // nfIdx → listItem
+    for (const c of candidates) {
+      if (usedListIdx.has(c.listIdx) || usedNfIdx.has(c.nfIdx)) continue;
+      matches[c.nfIdx] = listItems[c.listIdx];
+      usedListIdx.add(c.listIdx);
+      usedNfIdx.add(c.nfIdx);
+    }
+
+    return items.map((it, nfIdx) => {
+      const matchedListItem = matches[nfIdx] || null;
       return {
         ...it,
         id: `tmp_${it.n}`,
-        category: guessCategory(it.name),
+        // Nome técnico (da NF) preservado em invoice_name
+        invoice_name: it.name,
+        // Nome a EXIBIR: prioriza o nome amigável da lista quando há match
+        name: matchedListItem ? matchedListItem.name : it.name,
+        category: matchedListItem?.category || guessCategory(it.name),
         selected: true,
         in_list_item_id: matchedListItem?.id || null,
         in_list_item_name: matchedListItem?.name || null,
       };
-    })
-  );
+    });
+  });
 
   const [editing, setEditing] = useState(null);
 
@@ -2266,6 +2379,11 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
           <p style={{ color:C.graphite, fontSize:14, fontWeight:500, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
             {it.name}
           </p>
+          {it.in_list_item_id && it.invoice_name && it.invoice_name !== it.name && (
+            <p style={{ color:C.stoneSoft, fontSize:10, marginTop:1, fontStyle:"italic", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+              📄 {it.invoice_name}
+            </p>
+          )}
           <p style={{ color:C.stoneSoft, fontSize:11, marginTop:1 }}>
             {Number(it.qty).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {it.unit}
             {it.unit_price > 0 && ` × R$ ${Number(it.unit_price).toFixed(2).replace(".",",")}`}
@@ -2280,7 +2398,6 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
             ) : (
               <strong style={{ color:C.ink }}>R$ {Number(it.total_price).toFixed(2).replace(".",",")}</strong>
             )}
-            {it.in_list_item_id && it.in_list_item_name !== it.name && ` · ↔ "${it.in_list_item_name}"`}
           </p>
           {it.discount > 0 && (
             <p style={{ color:C.terracota, fontSize:10, marginTop:2, fontWeight:500 }}>
@@ -2865,10 +2982,10 @@ export default function App() {
           });
         }
 
-        // (c) Sempre adiciona ao histórico
+        // (c) Sempre adiciona ao histórico (nome técnico da NF para registro fiscal)
         itemsToInsertHistory.push({
           user_id: userId,
-          item_name: item.name,
+          item_name: item.invoice_name || item.name,
           qty: String(item.qty),
           unit: item.unit,
           category: item.category,
