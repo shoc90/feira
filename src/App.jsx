@@ -2245,7 +2245,8 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
       "ricot": "ricota",
       "padrao": "padrão",
       "tilapia": "tilapia",
-      "filezinho": "file",
+      "filezinho": "filé",
+      "file": "filé",
       "pao f orig": "pão francês",
       "pao": "pão",
       "minhoto": "",
@@ -2254,6 +2255,35 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
       "extra": "",
       "kg": "", "g": "", "ml": "", "lt": "", "un": "",
       "betania": "",
+      // Marcas e descritores que poluem
+      "aperitivo": "",      // "Filé Frango Sadia Aperitivo" → "Filé Frango Sadia"
+      "cong": "",           // "File Fgo Cong Sad1k" → "Filé Frango"
+      "pet": "",            // "Coca Cola Pet 500" → "Coca Cola"
+      "sleek": "",          // "Cerv Heineken 0 Al Sleek" → "Cerveja Heineken"
+      "al": "",             // partícula sem valor
+      "fr": "",             // abreviação genérica
+      "po": "pó",
+      "n": "",              // ruído ("Choc Em Po Sol N Fr 200")
+      "sol": "",
+      "em": "",
+      "de": "",
+      "do": "",
+      "da": "",
+      "para": "",
+      "com": "",
+      "sem": "",
+      "tir": "",            // "QJ Minas Padrão Tir" → "Queijo Minas Padrão"
+      "millano": "",
+      "ovomaltine": "ovomaltine",
+      "incol": "",
+      "bom": "",            // "Cha De Dentro Bom Beef" → "Chã De Dentro"
+      "beef": "",
+      "bra": "",
+      "verm": "",
+      "c": "",              // partícula
+      "p": "",              // partícula curta
+      "ric": "",            // "Creme Ric Presid" pode pegar
+      "minas p": "minas",   // queijo minas padrão
     };
 
     // Remove acentos (Á → A, ç → c)
@@ -2311,7 +2341,13 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
       "kg", "g", "ml", "lt", "l", "un", "und", "unid",
       "pt", "pct", "cx", "fr", "fardo",
       "granel", "extra", "natural", "tradicional",
-      "200g", "500g", "400g", "300g", "1kg",
+      "200g", "500g", "400g", "300g", "1kg", "100g", "150g", "250g", "1l", "2l",
+      // Descritores comuns que não ajudam na lista
+      "aperitivo", "cong", "pet", "sleek", "al", "fr", "po",
+      "tir", "bra", "verm", "bom", "beef",
+      // Partículas
+      "de", "do", "da", "dos", "das", "em", "para", "com", "sem", "ou", "no", "na",
+      "a", "o", "as", "os", "e", "n", "c", "p", "sol",
     ]);
     const makeFriendlyName = (rawName) => {
       // Aplica sinônimos primeiro
@@ -2320,19 +2356,45 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
       const words = expanded.split(" ").filter(w => {
         if (!w || w.length < 2) return false;
         if (friendlyStopwords.has(w.toLowerCase())) return false;
-        // Remove códigos tipo "sad1k", "in380"
+        // Remove códigos tipo "sad1k", "in380", "12un"
         if (/^\w{0,4}\d+\w*$/.test(w)) return false;
+        // Remove palavras de 1 caractere
+        if (w.length === 1) return false;
         return true;
       });
-      // Pega no máximo 4 palavras (concisão)
-      const limited = words.slice(0, 4);
+      // Pega no máximo 3 palavras (mais concisão)
+      const limited = words.slice(0, 3);
       // Capitaliza primeira letra de cada palavra
       return limited.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
     };
 
+    // ─── AGRUPAMENTO INTELIGENTE ────────────────────────────────────
+    // Agrupa itens duplicados (mesmo EAN, ou mesmo nome amigável quando sem EAN)
+    // Soma quantidades, totais e descontos. Mantém preço unitário do primeiro.
+    // Razão: o caixa pode bipar o mesmo produto várias vezes; em uma "lista
+    // inteligente" faz sentido aparecer 1 linha com qtd consolidada.
+    const groupedMap = new Map();
+    for (const it of items) {
+      const friendlyForGrouping = makeFriendlyName(it.name);
+      // Chave de agrupamento: EAN se houver, senão nome amigável normalizado
+      const groupKey = it.ean ? `ean:${it.ean}` : `name:${normalize(friendlyForGrouping || it.name)}`;
+      if (groupedMap.has(groupKey)) {
+        const existing = groupedMap.get(groupKey);
+        existing.qty = (Number(existing.qty) || 0) + (Number(it.qty) || 0);
+        existing.total_price = (Number(existing.total_price) || 0) + (Number(it.total_price) || 0);
+        existing.gross_total = (Number(existing.gross_total) || 0) + (Number(it.gross_total) || Number(it.total_price) || 0);
+        existing.discount = (Number(existing.discount) || 0) + (Number(it.discount) || 0);
+        existing.merged_count = (existing.merged_count || 1) + 1;
+      } else {
+        groupedMap.set(groupKey, { ...it, merged_count: 1 });
+      }
+    }
+    // Substitui items pelo array agrupado (mantém ordem de aparição)
+    const groupedItems = Array.from(groupedMap.values());
+
     // Para cada item da NF, calcula score com cada item da lista
     const candidates = []; // { nfIdx, listIdx, score }
-    items.forEach((it, nfIdx) => {
+    groupedItems.forEach((it, nfIdx) => {
       const nfTokens = tokenize(it.name);
       (listItems || []).forEach((li, listIdx) => {
         const listTokens = tokenize(li.name);
@@ -2353,7 +2415,7 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
       usedNfIdx.add(c.nfIdx);
     }
 
-    return items.map((it, nfIdx) => {
+    return groupedItems.map((it, nfIdx) => {
       const matchedListItem = matches[nfIdx] || null;
       // Se há match → usa o nome da lista (já é amigável)
       // Se NÃO há match → gera nome amigável a partir do nome cru da NF
@@ -2388,7 +2450,7 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
   const selectedTotal = enrichedItems.filter(i => i.selected).reduce((s, i) => s + (Number(i.total_price) || 0), 0);
   const selectedGross = enrichedItems.filter(i => i.selected).reduce((s, i) => s + (Number(i.gross_total) || Number(i.total_price) || 0), 0);
   const selectedDiscount = Math.max(0, selectedGross - selectedTotal);
-  const totalDiscountInInvoice = items.reduce((s, i) => s + (Number(i.discount) || 0), 0);
+  const totalDiscountInInvoice = enrichedItems.reduce((s, i) => s + (Number(i.discount) || 0), 0);
 
   const toggleSelect = (id) => {
     setEnrichedItems(prev => prev.map(i => i.id === id ? { ...i, selected: !i.selected } : i));
@@ -2435,6 +2497,11 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
         <div style={{ flex:1, minWidth:0, cursor:"pointer" }} onClick={() => setEditing(it)}>
           <p style={{ color:C.graphite, fontSize:14, fontWeight:500, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
             {it.name}
+            {it.merged_count > 1 && (
+              <span style={{ marginLeft:6, padding:"1px 6px", background:C.linen, color:C.stone, fontSize:10, borderRadius:4, fontWeight:400 }}>
+                ×{it.merged_count} bipados
+              </span>
+            )}
           </p>
           {it.in_list_item_id && it.invoice_name && it.invoice_name !== it.name && (
             <p style={{ color:C.stoneSoft, fontSize:10, marginTop:1, fontStyle:"italic", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
@@ -2497,7 +2564,7 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
           {invoice.store_fantasy || invoice.store_name || "Supermercado"}
         </p>
         <p style={{ color:C.stone, fontSize:11, marginTop:2 }}>
-          {fmtDate(invoice.issued_at)} {fmtTime(invoice.issued_at) && `às ${fmtTime(invoice.issued_at)}`} · {items.length} itens · R$ {Number(invoice.total_amount).toFixed(2).replace(".",",")}
+          {fmtDate(invoice.issued_at)} {fmtTime(invoice.issued_at) && `às ${fmtTime(invoice.issued_at)}`} · {invoice.total_items || items.length} itens · R$ {Number(invoice.total_amount).toFixed(2).replace(".",",")}
         </p>
         {totalDiscountInInvoice > 0 && (
           <p style={{ color:C.terracota, fontSize:11, marginTop:4, fontWeight:500 }}>
