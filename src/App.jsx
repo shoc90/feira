@@ -1087,7 +1087,7 @@ function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete, canEdit, 
             {item.done && item.bought_at ? ` · ✓ ${item.bought_at === "store" ? "Loja" : STORES.find(s=>s.id===item.bought_at)?.short}` : ""}
             {!item.done && priceHint && priceHint.avg > 0 ? (
               <span style={{ color:C.sageDeep, marginLeft:4 }}>
-                · ~R$ {priceHint.avg.toFixed(2).replace(".",",")}
+                · ~R$ {priceHint.avg.toFixed(2).replace(".",",")}/{priceHint.unit || "un"}
               </span>
             ) : ""}
           </p>
@@ -2811,23 +2811,34 @@ export default function App() {
     if (invs) setInvoices(invs);
   };
 
-  // Calcula preço médio dos últimos 3 valores pagos para cada item
-  // Usado para mostrar sugestão de preço discreta na lista.
+  // Calcula preço UNITÁRIO médio dos últimos 3 valores pagos para cada item.
+  // Usa unit_price (R$/un ou R$/kg) que é comparável entre compras de
+  // quantidades diferentes. Fallback pra price/qty para registros antigos.
   const priceHints = useMemo(() => {
-    const grouped = {};  // key → [{ price, date }]
+    const grouped = {};  // key → [{ unitPrice, unit, date }]
     for (const h of history) {
-      if (!h.item_name || !h.price || Number(h.price) <= 0) continue;
+      if (!h.item_name) continue;
+      // Pega unit_price diretamente, ou calcula a partir de price/qty
+      let unitPrice = Number(h.unit_price);
+      if (!unitPrice || unitPrice <= 0) {
+        const qty = Number(String(h.qty || "1").replace(",", "."));
+        const price = Number(h.price);
+        if (qty > 0 && price > 0) unitPrice = price / qty;
+      }
+      if (!unitPrice || unitPrice <= 0) continue;
       const key = itemPriceKey(h.item_name);
       if (!grouped[key]) grouped[key] = [];
-      grouped[key].push({ price: Number(h.price), date: h.purchased_at });
+      grouped[key].push({ unitPrice, unit: h.unit || "un", date: h.purchased_at });
     }
     const hints = {};
     for (const key in grouped) {
-      // Ordena por data desc e pega os últimos 3
       const sorted = grouped[key].sort((a, b) => new Date(b.date) - new Date(a.date));
       const last3 = sorted.slice(0, 3);
-      const avg = last3.reduce((s, x) => s + x.price, 0) / last3.length;
-      hints[key] = { avg, count: last3.length, all: grouped[key].length };
+      const avg = last3.reduce((s, x) => s + x.unitPrice, 0) / last3.length;
+      // Unidade mais frequente nos últimos 3
+      const units = last3.map(x => x.unit);
+      const unit = units.sort((a,b) => units.filter(v=>v===a).length - units.filter(v=>v===b).length).pop() || "un";
+      hints[key] = { avg, unit, count: last3.length, all: grouped[key].length };
     }
     return hints;
   }, [history]);
@@ -2943,14 +2954,52 @@ export default function App() {
     setTimeout(loadHistory, 300);
   };
 
+  // Helper: apaga NFs que ficaram sem nenhum item no histórico
+  // (executado após operações de delete em purchase_history)
+  const cleanupOrphanInvoices = async (affectedInvoiceIds) => {
+    if (!affectedInvoiceIds || affectedInvoiceIds.length === 0) return;
+    const uniqueIds = [...new Set(affectedInvoiceIds.filter(Boolean))];
+    if (uniqueIds.length === 0) return;
+
+    // Verifica quais invoice_ids ainda têm itens no histórico
+    const { data: stillHasItems } = await supabase
+      .from("purchase_history")
+      .select("invoice_id")
+      .in("invoice_id", uniqueIds);
+
+    const stillHasSet = new Set((stillHasItems || []).map(r => r.invoice_id));
+    const orphans = uniqueIds.filter(id => !stillHasSet.has(id));
+
+    if (orphans.length > 0) {
+      // Apaga as NFs órfãs
+      await supabase.from("imported_invoices").delete().in("id", orphans);
+      setInvoices(prev => prev.filter(i => !orphans.includes(i.id)));
+    }
+  };
+
   const deleteHistoryRecord = async (recordId) => {
+    // Pega o invoice_id antes de apagar (pra checar órfã depois)
+    const record = history.find(h => h.id === recordId);
+    const invoiceId = record?.invoice_id;
+
     await supabase.from("purchase_history").delete().eq("id", recordId);
     setHistory(prev => prev.filter(h => h.id !== recordId));
+
+    // Limpa NF órfã se for o caso
+    if (invoiceId) await cleanupOrphanInvoices([invoiceId]);
   };
 
   const deleteHistoryMany = async (ids) => {
+    // Coleta invoice_ids afetados antes de apagar
+    const affectedInvoiceIds = history
+      .filter(h => ids.includes(h.id) && h.invoice_id)
+      .map(h => h.invoice_id);
+
     await supabase.from("purchase_history").delete().in("id", ids);
     setHistory(prev => prev.filter(h => !ids.includes(h.id)));
+
+    // Limpa NFs órfãs se for o caso
+    if (affectedInvoiceIds.length > 0) await cleanupOrphanInvoices(affectedInvoiceIds);
   };
 
   // Apaga uma NF inteira (e todos os registros do histórico ligados a ela)
@@ -3135,7 +3184,8 @@ export default function App() {
           unit: item.unit,
           category: item.category,
           store: "store",
-          price: item.total_price,
+          price: item.total_price,       // total pago (para totais e relatórios)
+          unit_price: item.unit_price,   // preço unitário (para sugestões e comparação)
           purchased_at: purchasedAt,
           invoice_id: invoiceId,
         });
