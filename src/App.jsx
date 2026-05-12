@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, AFFILIATE } from "./feira-config";
 
@@ -57,6 +57,19 @@ const CATEGORIES = [
 // Ordem específica de avaliação para evitar conflitos de keywords
 // (ex: "suco de laranja" deve cair em bebidas, não em hortifruti)
 const CATEGORY_PRIORITY_ORDER = ["bebidas","laticinios","carnes","padaria","congelados","limpeza","higiene","mercearia","hortifruti"];
+
+// Chave normalizada para agrupar items por nome (sem acentos, lowercase, trim)
+// Usada para calcular preço médio do histórico e match de nomes.
+function itemPriceKey(name) {
+  if (!name) return "";
+  return (name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function guessCategory(name) {
   const lower = name.toLowerCase();
@@ -1039,7 +1052,7 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased, canEdi
 // ═════════════════════════════════════════════════════════════════════
 // ITEM ROW
 // ═════════════════════════════════════════════════════════════════════
-function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete, canEdit }) {
+function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete, canEdit, priceHint }) {
   const [showCatPicker, setShowCatPicker] = useState(false);
   const cat = CATEGORIES.find(c => c.id === item.category) || CATEGORIES[9];
 
@@ -1072,6 +1085,11 @@ function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete, canEdit }
           <p style={{ color:C.stoneSoft,fontSize:11,marginTop:1 }}>
             {item.qty} {item.unit}
             {item.done && item.bought_at ? ` · ✓ ${item.bought_at === "store" ? "Loja" : STORES.find(s=>s.id===item.bought_at)?.short}` : ""}
+            {!item.done && priceHint && priceHint.avg > 0 ? (
+              <span style={{ color:C.sageDeep, marginLeft:4 }}>
+                · ~R$ {priceHint.avg.toFixed(2).replace(".",",")}
+              </span>
+            ) : ""}
           </p>
         </div>
 
@@ -1263,7 +1281,7 @@ function ScreenLists({ lists, listCounts, listMembers, onOpen, onAdd, onDelete, 
 // ═════════════════════════════════════════════════════════════════════
 // SCREEN: LIST DETAIL
 // ═════════════════════════════════════════════════════════════════════
-function ScreenListDetail({ list, items, members, currentUserId, onBack, enabledStores, onAddItem, onToggleItem, onDeleteItem, onChangeCategory, onMarkPurchased, onToggleAll, onRefresh, onRegisterPurchase }) {
+function ScreenListDetail({ list, items, members, currentUserId, onBack, enabledStores, onAddItem, onToggleItem, onDeleteItem, onChangeCategory, onMarkPurchased, onToggleAll, onRefresh, onRegisterPurchase, priceHints = {} }) {
   const [showAdd, setShowAdd] = useState(false);
   const [openItem, setOpenItem] = useState(null);
   const [showShare, setShowShare] = useState(false);
@@ -1416,6 +1434,7 @@ function ScreenListDetail({ list, items, members, currentUserId, onBack, enabled
             onOpen={()=>setOpenItem(item)}
             onDelete={()=>onDeleteItem(item.id)}
             onCategoryChange={(cid)=>onChangeCategory(item.id,cid)}
+            priceHint={priceHints[itemPriceKey(item.name)]}
           />
         ))}
       </div>
@@ -1648,26 +1667,36 @@ function ScreenHistory({ history, invoices = [], onDeleteRecord, onDeleteMany, o
                             {item.price ? ` · R$ ${Number(item.price).toFixed(2).replace(".",",")}` : ""}
                           </p>
                         </div>
+                        <button
+                          onClick={()=>{ if (window.confirm("Apagar este item do histórico?")) onDeleteRecord(item.id); }}
+                          style={{ background:"none", border:"none", color:C.stoneSoft, fontSize:14, cursor:"pointer", padding:6, flexShrink:0 }}
+                          title="Apagar este item"
+                        >✕</button>
                       </div>
                     ))}
-                    {/* Botão apagar a compra inteira (só pra NF) */}
-                    {isInvoice && (
-                      <button
-                        onClick={()=>{
-                          if (window.confirm(`Apagar esta compra (${inv.store_name || "NF"}) e os ${items.length} itens do histórico?`)) {
+                    {/* Botão apagar a compra inteira */}
+                    <button
+                      onClick={()=>{
+                        if (isInvoice) {
+                          if (window.confirm(`Apagar esta compra (${inv.store_fantasy || inv.store_name || "NF"}) e os ${items.length} itens do histórico?`)) {
                             onDeleteInvoice(inv.id);
                           }
-                        }}
-                        style={{
-                          width:"100%", marginTop:10, padding:"9px",
-                          background:"transparent", border:`1px solid ${C.danger}55`,
-                          borderRadius:9, color:C.danger, fontSize:12, fontWeight:500,
-                          cursor:"pointer", fontFamily:"'DM Sans',sans-serif"
-                        }}
-                      >
-                        Apagar compra inteira
-                      </button>
-                    )}
+                        } else {
+                          // Grupo avulso — apaga todos os ids do grupo
+                          if (window.confirm(`Apagar esta compra avulsa e os ${items.length} itens do histórico?`)) {
+                            onDeleteMany(items.map(i => i.id));
+                          }
+                        }
+                      }}
+                      style={{
+                        width:"100%", marginTop:10, padding:"9px",
+                        background:"transparent", border:`1px solid ${C.danger}55`,
+                        borderRadius:9, color:C.danger, fontSize:12, fontWeight:500,
+                        cursor:"pointer", fontFamily:"'DM Sans',sans-serif"
+                      }}
+                    >
+                      Apagar compra inteira
+                    </button>
                   </div>
                 )}
               </div>
@@ -2276,6 +2305,31 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
       return allMatched ? score + 1 : score;
     };
 
+    // Função para gerar um nome amigável a partir de um nome cru de NF
+    // Aplica sinônimos, remove termos genéricos e capitaliza
+    const friendlyStopwords = new Set([
+      "kg", "g", "ml", "lt", "l", "un", "und", "unid",
+      "pt", "pct", "cx", "fr", "fardo",
+      "granel", "extra", "natural", "tradicional",
+      "200g", "500g", "400g", "300g", "1kg",
+    ]);
+    const makeFriendlyName = (rawName) => {
+      // Aplica sinônimos primeiro
+      let expanded = expandSynonyms(rawName);
+      // Remove stopwords (palavras genéricas) e códigos
+      const words = expanded.split(" ").filter(w => {
+        if (!w || w.length < 2) return false;
+        if (friendlyStopwords.has(w.toLowerCase())) return false;
+        // Remove códigos tipo "sad1k", "in380"
+        if (/^\w{0,4}\d+\w*$/.test(w)) return false;
+        return true;
+      });
+      // Pega no máximo 4 palavras (concisão)
+      const limited = words.slice(0, 4);
+      // Capitaliza primeira letra de cada palavra
+      return limited.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+    };
+
     // Para cada item da NF, calcula score com cada item da lista
     const candidates = []; // { nfIdx, listIdx, score }
     items.forEach((it, nfIdx) => {
@@ -2301,13 +2355,16 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
 
     return items.map((it, nfIdx) => {
       const matchedListItem = matches[nfIdx] || null;
+      // Se há match → usa o nome da lista (já é amigável)
+      // Se NÃO há match → gera nome amigável a partir do nome cru da NF
+      const friendlyDisplayName = matchedListItem ? matchedListItem.name : makeFriendlyName(it.name);
       return {
         ...it,
         id: `tmp_${it.n}`,
         // Nome técnico (da NF) preservado em invoice_name
         invoice_name: it.name,
-        // Nome a EXIBIR: prioriza o nome amigável da lista quando há match
-        name: matchedListItem ? matchedListItem.name : it.name,
+        // Nome a EXIBIR (amigável SEMPRE)
+        name: friendlyDisplayName || it.name,  // fallback no nome cru se gerador falhar
         category: matchedListItem?.category || guessCategory(it.name),
         selected: true,
         in_list_item_id: matchedListItem?.id || null,
@@ -2687,6 +2744,27 @@ export default function App() {
     if (invs) setInvoices(invs);
   };
 
+  // Calcula preço médio dos últimos 3 valores pagos para cada item
+  // Usado para mostrar sugestão de preço discreta na lista.
+  const priceHints = useMemo(() => {
+    const grouped = {};  // key → [{ price, date }]
+    for (const h of history) {
+      if (!h.item_name || !h.price || Number(h.price) <= 0) continue;
+      const key = itemPriceKey(h.item_name);
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push({ price: Number(h.price), date: h.purchased_at });
+    }
+    const hints = {};
+    for (const key in grouped) {
+      // Ordena por data desc e pega os últimos 3
+      const sorted = grouped[key].sort((a, b) => new Date(b.date) - new Date(a.date));
+      const last3 = sorted.slice(0, 3);
+      const avg = last3.reduce((s, x) => s + x.price, 0) / last3.length;
+      hints[key] = { avg, count: last3.length, all: grouped[key].length };
+    }
+    return hints;
+  }, [history]);
+
   useEffect(() => {
     if (!activeList) { setItems([]); setActiveListMembers([]); return; }
     loadItems(activeList.id);
@@ -2982,10 +3060,10 @@ export default function App() {
           });
         }
 
-        // (c) Sempre adiciona ao histórico (nome técnico da NF para registro fiscal)
+        // (c) Sempre adiciona ao histórico (nome AMIGÁVEL — UX prioridade)
         itemsToInsertHistory.push({
           user_id: userId,
-          item_name: item.invoice_name || item.name,
+          item_name: item.name,  // nome amigável (mesmo da lista se matched, ou da NF se extra)
           qty: String(item.qty),
           unit: item.unit,
           category: item.category,
@@ -3134,6 +3212,7 @@ export default function App() {
             listName: activeList.name,
             items: items
           })}
+          priceHints={priceHints}
         />
       ) : (
         <>
