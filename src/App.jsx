@@ -3156,6 +3156,8 @@ export default function App() {
             bought_at: "store",
             bought_date: purchasedAt,
             bought_price: item.total_price,
+            unit_price: item.unit_price,
+            invoice_id: invoiceId,
             category: item.category,
           }).eq("id", item.in_list_item_id);
         }
@@ -3173,6 +3175,8 @@ export default function App() {
             bought_at: "store",
             bought_date: purchasedAt,
             bought_price: item.total_price,
+            unit_price: item.unit_price,
+            invoice_id: invoiceId,
           });
         }
 
