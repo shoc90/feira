@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, AFFILIATE } from "./feira-config";
 
@@ -1970,17 +1970,18 @@ function RegisterPurchaseModal({ onClose, onChooseMethod }) {
       </p>
 
       <Option
+        emoji="📷"
+        title="Escanear QR Code"
+        desc="Aponte a câmera para o QR Code do cupom fiscal"
+        available={true}
+        onClick={() => onChooseMethod("scan")}
+      />
+      <Option
         emoji="🔗"
         title="Colar link ou chave"
         desc="Cole o link do cupom (do WhatsApp, email) ou os 44 dígitos da chave"
         available={true}
         onClick={() => onChooseMethod("paste")}
-      />
-      <Option
-        emoji="📷"
-        title="Escanear QR Code"
-        desc="Aponte a câmera para o QR Code do cupom fiscal"
-        available={false}
       />
       <Option
         emoji="📸"
@@ -1989,6 +1990,359 @@ function RegisterPurchaseModal({ onClose, onChooseMethod }) {
         available={false}
       />
     </Modal>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// QR SCANNER MODAL — câmera + html5-qrcode (carregado via CDN)
+// ═════════════════════════════════════════════════════════════════════
+function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, loading, error }) {
+  const containerId = "qr-scanner-container";
+  const [status, setStatus] = useState("loading"); // loading | scanning | error | confirming
+  const [errorMsg, setErrorMsg] = useState("");
+  const [detectedUrl, setDetectedUrl] = useState(null);
+  const scannerRef = useRef(null);
+  const isProcessingRef = useRef(false);
+
+  // Carrega a biblioteca html5-qrcode via CDN (uma vez)
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadLibrary = async () => {
+      // Se já estiver carregado, segue direto
+      if (window.Html5Qrcode) {
+        if (!cancelled) initScanner();
+        return;
+      }
+
+      // Carrega o script da CDN
+      try {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js";
+          script.async = true;
+          script.onload = resolve;
+          script.onerror = () => reject(new Error("Falha ao carregar biblioteca do scanner"));
+          document.head.appendChild(script);
+        });
+
+        if (!cancelled) initScanner();
+      } catch (err) {
+        if (!cancelled) {
+          setStatus("error");
+          setErrorMsg("Não consegui carregar o scanner. Verifique sua conexão.");
+        }
+      }
+    };
+
+    const initScanner = async () => {
+      if (!window.Html5Qrcode) {
+        setStatus("error");
+        setErrorMsg("Biblioteca do scanner não disponível");
+        return;
+      }
+
+      try {
+        const Html5Qrcode = window.Html5Qrcode;
+        const scanner = new Html5Qrcode(containerId);
+        scannerRef.current = scanner;
+
+        // Tenta primeiro a câmera traseira (preferida pra escanear cupom)
+        const config = {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
+          aspectRatio: 1,
+          disableFlip: false,
+        };
+
+        await scanner.start(
+          { facingMode: "environment" },  // câmera traseira
+          config,
+          (decodedText) => {
+            // Sucesso! Tem QR detectado
+            if (isProcessingRef.current) return;
+            isProcessingRef.current = true;
+            handleDetected(decodedText);
+          },
+          () => {
+            // Erro silencioso a cada frame onde não detectou — normal
+          }
+        );
+
+        if (!cancelled) setStatus("scanning");
+      } catch (err) {
+        console.error("[scanner] erro init:", err);
+        if (!cancelled) {
+          setStatus("error");
+          if (err.name === "NotAllowedError" || String(err).includes("Permission")) {
+            setErrorMsg("Permissão de câmera negada. Habilite nas configurações do navegador.");
+          } else if (err.name === "NotFoundError" || String(err).includes("not found")) {
+            setErrorMsg("Nenhuma câmera detectada neste dispositivo.");
+          } else {
+            setErrorMsg("Erro ao iniciar a câmera: " + (err.message || err.toString()));
+          }
+        }
+      }
+    };
+
+    const handleDetected = async (decodedText) => {
+      // Para o scanner imediatamente pra economizar bateria
+      if (scannerRef.current) {
+        try { await scannerRef.current.stop(); } catch {}
+      }
+
+      // Valida se é URL de NF-e
+      const isSefazUrl = /https?:\/\/[^\s]*(\.sefaz\.|\.fazenda\.|nfce|nfe)/i.test(decodedText);
+
+      if (isSefazUrl) {
+        // URL SEFAZ — busca direto
+        onDetected(decodedText);
+      } else {
+        // URL suspeita — pede confirmação
+        setDetectedUrl(decodedText);
+        setStatus("confirming");
+      }
+    };
+
+    loadLibrary();
+
+    // Cleanup ao desmontar
+    return () => {
+      cancelled = true;
+      if (scannerRef.current) {
+        try {
+          scannerRef.current.stop().catch(() => {});
+        } catch {}
+        scannerRef.current = null;
+      }
+    };
+  }, []);
+
+  const confirmSuspiciousUrl = () => {
+    if (detectedUrl) onDetected(detectedUrl);
+  };
+
+  const rejectSuspiciousUrl = () => {
+    setDetectedUrl(null);
+    setStatus("scanning");
+    isProcessingRef.current = false;
+    // Reinicia o scanner
+    if (scannerRef.current && window.Html5Qrcode) {
+      try {
+        scannerRef.current.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          (text) => {
+            if (isProcessingRef.current) return;
+            isProcessingRef.current = true;
+            // re-handle
+            const isSefazUrl = /https?:\/\/[^\s]*(\.sefaz\.|\.fazenda\.|nfce|nfe)/i.test(text);
+            if (isSefazUrl) {
+              onDetected(text);
+            } else {
+              setDetectedUrl(text);
+              setStatus("confirming");
+            }
+          },
+          () => {}
+        );
+      } catch {}
+    }
+  };
+
+  return (
+    <div style={{
+      position:"fixed", top:0, bottom:0, left:"50%", transform:"translateX(-50%)",
+      width:"100%", maxWidth:480, zIndex: 500,
+      background:C.graphite,
+      display:"flex", flexDirection:"column",
+      fontFamily:"'DM Sans',sans-serif"
+    }}>
+      {/* Header */}
+      <div style={{ flexShrink:0, padding:"40px 16px 14px", background:`${C.graphite}EE`, color:C.sand }}>
+        <button onClick={onClose} style={{ background:"none",border:"none",color:C.sand,fontSize:13,cursor:"pointer",marginBottom:10,display:"flex",alignItems:"center",gap:5 }}>
+          ← Cancelar
+        </button>
+        <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:22,fontWeight:500,letterSpacing:"-0.3px" }}>
+          Escanear QR Code
+        </h2>
+        <p style={{ color:`${C.sand}AA`, fontSize:12, marginTop:4 }}>
+          Aponte a câmera para o QR Code no rodapé do cupom fiscal
+        </p>
+      </div>
+
+      {/* Área da câmera */}
+      <div style={{ flex:1, position:"relative", overflow:"hidden", background:"#000" }}>
+        <div id={containerId} style={{ width:"100%", height:"100%", minHeight:300 }} />
+
+        {/* Overlay de loading */}
+        {status === "loading" && (
+          <div style={{
+            position:"absolute", top:0, left:0, right:0, bottom:0,
+            display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column",
+            background:"#000", color:C.sand, padding:20, textAlign:"center"
+          }}>
+            <div style={{ fontSize:32, marginBottom:14 }}>📷</div>
+            <p style={{ fontSize:14 }}>Iniciando câmera...</p>
+            <p style={{ fontSize:11, color:`${C.sand}88`, marginTop:6 }}>
+              Permita o acesso à câmera quando solicitado
+            </p>
+          </div>
+        )}
+
+        {/* Overlay de erro */}
+        {status === "error" && (
+          <div style={{
+            position:"absolute", top:0, left:0, right:0, bottom:0,
+            display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column",
+            background:"#000", color:C.sand, padding:24, textAlign:"center"
+          }}>
+            <div style={{ fontSize:42, marginBottom:14 }}>📷</div>
+            <p style={{ fontSize:14, marginBottom:10, lineHeight:1.5 }}>{errorMsg}</p>
+            <button
+              onClick={onFallbackPaste}
+              style={{
+                marginTop:14, padding:"12px 22px",
+                background:C.sage, border:"none", borderRadius:11,
+                color:C.graphite, fontSize:14, fontWeight:600, cursor:"pointer",
+                fontFamily:"'DM Sans',sans-serif"
+              }}
+            >
+              Colar link manualmente
+            </button>
+          </div>
+        )}
+
+        {/* Overlay de confirmação (URL não-SEFAZ) */}
+        {status === "confirming" && detectedUrl && (
+          <div style={{
+            position:"absolute", top:0, left:0, right:0, bottom:0,
+            display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column",
+            background:"rgba(0,0,0,0.85)", color:C.sand, padding:24, textAlign:"center"
+          }}>
+            <div style={{ fontSize:36, marginBottom:14 }}>⚠️</div>
+            <p style={{ fontSize:14, marginBottom:10, lineHeight:1.5 }}>
+              Detectei este QR Code, mas não parece um cupom fiscal:
+            </p>
+            <div style={{
+              background:`${C.sand}22`, padding:"10px 14px", borderRadius:8,
+              fontSize:11, color:C.sand, marginBottom:18, maxWidth:"100%",
+              overflowWrap:"break-word", wordBreak:"break-all", lineHeight:1.4
+            }}>
+              {detectedUrl.substring(0, 200)}
+              {detectedUrl.length > 200 ? "..." : ""}
+            </div>
+            <div style={{ display:"flex", gap:10, width:"100%", maxWidth:300 }}>
+              <button
+                onClick={rejectSuspiciousUrl}
+                style={{
+                  flex:1, padding:"12px",
+                  background:"transparent", border:`1px solid ${C.sand}`, borderRadius:11,
+                  color:C.sand, fontSize:13, cursor:"pointer",
+                  fontFamily:"'DM Sans',sans-serif"
+                }}
+              >
+                Escanear de novo
+              </button>
+              <button
+                onClick={confirmSuspiciousUrl}
+                style={{
+                  flex:1, padding:"12px",
+                  background:C.sage, border:"none", borderRadius:11,
+                  color:C.graphite, fontSize:13, fontWeight:600, cursor:"pointer",
+                  fontFamily:"'DM Sans',sans-serif"
+                }}
+              >
+                Tentar mesmo assim
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Dica enquanto escaneia */}
+        {status === "scanning" && !loading && !error && (
+          <div style={{
+            position:"absolute", bottom:20, left:0, right:0,
+            display:"flex", justifyContent:"center", pointerEvents:"none"
+          }}>
+            <div style={{
+              background:"rgba(0,0,0,0.6)", color:C.sand,
+              padding:"8px 14px", borderRadius:8, fontSize:12
+            }}>
+              Aguardando QR Code...
+            </div>
+          </div>
+        )}
+
+        {/* Overlay de loading do fetch (após detectar QR) */}
+        {loading && (
+          <div style={{
+            position:"absolute", top:0, left:0, right:0, bottom:0,
+            display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column",
+            background:"rgba(0,0,0,0.85)", color:C.sand, padding:24, textAlign:"center"
+          }}>
+            <div style={{ fontSize:38, marginBottom:14 }}>✨</div>
+            <p style={{ fontSize:15, fontWeight:500, marginBottom:6 }}>QR Code detectado!</p>
+            <p style={{ fontSize:12, color:`${C.sand}AA` }}>Buscando dados da nota fiscal...</p>
+          </div>
+        )}
+
+        {/* Overlay de erro do fetch */}
+        {error && !loading && (
+          <div style={{
+            position:"absolute", top:0, left:0, right:0, bottom:0,
+            display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column",
+            background:"rgba(0,0,0,0.85)", color:C.sand, padding:24, textAlign:"center"
+          }}>
+            <div style={{ fontSize:38, marginBottom:14 }}>⚠️</div>
+            <p style={{ fontSize:14, marginBottom:18, lineHeight:1.5 }}>{error}</p>
+            <div style={{ display:"flex", gap:10, width:"100%", maxWidth:300 }}>
+              <button
+                onClick={() => {
+                  isProcessingRef.current = false;
+                  if (onClearError) onClearError();
+                  rejectSuspiciousUrl();  // reusa lógica de reinício do scanner
+                }}
+                style={{
+                  flex:1, padding:"12px",
+                  background:"transparent", border:`1px solid ${C.sand}`, borderRadius:11,
+                  color:C.sand, fontSize:13, cursor:"pointer",
+                  fontFamily:"'DM Sans',sans-serif"
+                }}
+              >
+                Escanear de novo
+              </button>
+              <button
+                onClick={onFallbackPaste}
+                style={{
+                  flex:1, padding:"12px",
+                  background:C.sage, border:"none", borderRadius:11,
+                  color:C.graphite, fontSize:13, fontWeight:600, cursor:"pointer",
+                  fontFamily:"'DM Sans',sans-serif"
+                }}
+              >
+                Colar link
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer com fallback */}
+      <div style={{ flexShrink:0, padding:"14px 16px", background:C.graphite, borderTop:`1px solid ${C.inkSoft}`, paddingBottom:"calc(14px + env(safe-area-inset-bottom))" }}>
+        <button
+          onClick={onFallbackPaste}
+          style={{
+            width:"100%", padding:"12px",
+            background:"transparent", border:`1px solid ${C.stoneSoft}`, borderRadius:11,
+            color:C.sand, fontSize:13, fontWeight:500, cursor:"pointer",
+            fontFamily:"'DM Sans',sans-serif"
+          }}
+        >
+          🔗 Colar link manualmente
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -3354,7 +3708,22 @@ export default function App() {
           onClose={closeInvoiceFlow}
           onChooseMethod={(method) => {
             if (method === "paste") setInvoiceFlow("paste");
+            else if (method === "scan") setInvoiceFlow("scan");
           }}
+        />
+      )}
+
+      {invoiceFlow === "scan" && (
+        <QRScannerModal
+          onClose={closeInvoiceFlow}
+          onDetected={(url) => {
+            // QR detectado → dispara fetch (que vai mostrar preview ou erro)
+            handleInvoiceFetch(url);
+          }}
+          onFallbackPaste={() => setInvoiceFlow("paste")}
+          onClearError={() => setInvoiceError(null)}
+          loading={invoiceLoading}
+          error={invoiceError}
         />
       )}
 
