@@ -378,13 +378,13 @@ function AuthScreen({ pendingInviteToken }) {
 // ═════════════════════════════════════════════════════════════════════
 function Modal({ onClose, title, children, footer }) {
   return (
-    <div style={{ position:"fixed",inset:0,background:"rgba(15,18,24,0.65)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",backdropFilter:"blur(4px)",padding:"0 12px" }} onClick={onClose}>
-      <div style={{ background:C.sand,borderRadius:18,marginTop:"max(24px, env(safe-area-inset-top))",width:"100%",maxWidth:460,maxHeight:"calc(100vh - 48px)",display:"flex",flexDirection:"column",animation:"slideDown 0.25s ease",boxShadow:"0 10px 40px rgba(0,0,0,0.25)",overflow:"hidden" }} onClick={e=>e.stopPropagation()}>
+    <div style={{ position:"fixed",top:0,bottom:0,left:0,right:0,background:"rgba(15,18,24,0.65)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",backdropFilter:"blur(4px)",padding:"0 12px" }} onClick={onClose}>
+      <div style={{ background:C.sand,borderRadius:18,marginTop:"max(24px, env(safe-area-inset-top))",marginBottom:"max(24px, env(safe-area-inset-bottom))",width:"100%",maxWidth:460,maxHeight:"calc(100% - 48px)",display:"flex",flexDirection:"column",animation:"slideDown 0.25s ease",boxShadow:"0 10px 40px rgba(0,0,0,0.25)",overflow:"hidden" }} onClick={e=>e.stopPropagation()}>
         <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"18px 20px 14px",borderBottom:`1px solid ${C.linen}`,flexShrink:0 }}>
           <h3 style={{ color:C.graphite,fontSize:19,fontFamily:"'Fraunces',serif",fontWeight:500,letterSpacing:"-0.3px" }}>{title}</h3>
           <button onClick={onClose} style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:20,cursor:"pointer",padding:4 }}>✕</button>
         </div>
-        <div style={{ padding:"18px 20px",overflowY:"auto",flex:1 }}>{children}</div>
+        <div style={{ padding:"18px 20px",overflowY:"auto",flex:1,WebkitOverflowScrolling:"touch" }}>{children}</div>
         {footer && (
           <div style={{ padding:"14px 20px 20px",borderTop:`1px solid ${C.linen}`,flexShrink:0,background:C.sand }}>
             {footer}
@@ -2047,12 +2047,18 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
         const scanner = new Html5Qrcode(containerId);
         scannerRef.current = scanner;
 
-        // Tenta primeiro a câmera traseira (preferida pra escanear cupom)
+        // Config full-frame: analisa a tela inteira (igual ao leitor nativo do iPhone)
+        // qrbox: undefined → biblioteca analisa o frame completo, não só uma caixa
         const config = {
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: 1,
+          fps: 20,                  // 20 FPS = dobro da detecção
+          qrbox: undefined,         // sem caixa fixa → analisa tudo
+          aspectRatio: 1.7777,      // proporção 16:9 (mais cobertura horizontal)
           disableFlip: false,
+          videoConstraints: {
+            facingMode: { ideal: "environment" },
+            focusMode: { ideal: "continuous" },     // autofocus contínuo
+            advanced: [{ focusMode: "continuous" }]
+          },
         };
 
         await scanner.start(
@@ -2069,17 +2075,44 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
           }
         );
 
+        // Tenta aplicar zoom 2x após iniciar (alguns dispositivos suportam)
+        // Isso ajuda a captar QR codes pequenos como os de cupom fiscal
+        try {
+          const videoEl = document.querySelector(`#${containerId} video`);
+          if (videoEl && videoEl.srcObject) {
+            const track = videoEl.srcObject.getVideoTracks()[0];
+            if (track) {
+              const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+              if (capabilities.zoom) {
+                // Zoom inicial = 1.5x (ou max suportado se menor)
+                const targetZoom = Math.min(1.5, capabilities.zoom.max || 1);
+                await track.applyConstraints({
+                  advanced: [{ zoom: targetZoom }]
+                });
+              }
+            }
+          }
+        } catch (zoomErr) {
+          // Zoom é opcional, ignora se não suportado
+        }
+
         if (!cancelled) setStatus("scanning");
       } catch (err) {
         console.error("[scanner] erro init:", err);
         if (!cancelled) {
           setStatus("error");
-          if (err.name === "NotAllowedError" || String(err).includes("Permission")) {
-            setErrorMsg("Permissão de câmera negada. Habilite nas configurações do navegador.");
-          } else if (err.name === "NotFoundError" || String(err).includes("not found")) {
-            setErrorMsg("Nenhuma câmera detectada neste dispositivo.");
+          // Mensagens amigáveis em português baseadas no tipo de erro
+          const errString = String(err.message || err.toString());
+          if (err.name === "NotAllowedError" || errString.includes("Permission") || errString.includes("not allowed")) {
+            setErrorMsg("Permita o acesso à câmera para escanear o QR Code do cupom fiscal.");
+          } else if (err.name === "NotFoundError" || errString.includes("not found") || errString.includes("no camera")) {
+            setErrorMsg("Não encontramos uma câmera neste aparelho.");
+          } else if (err.name === "NotReadableError" || errString.includes("in use")) {
+            setErrorMsg("A câmera está sendo usada por outro app. Feche e tente de novo.");
+          } else if (err.name === "OverconstrainedError") {
+            setErrorMsg("Sua câmera não suporta este modo. Tente colar o link manualmente.");
           } else {
-            setErrorMsg("Erro ao iniciar a câmera: " + (err.message || err.toString()));
+            setErrorMsg("Não foi possível abrir a câmera. Tente colar o link manualmente.");
           }
         }
       }
@@ -2126,12 +2159,22 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
     setDetectedUrl(null);
     setStatus("scanning");
     isProcessingRef.current = false;
-    // Reinicia o scanner
+    // Reinicia o scanner com mesma config full-frame
     if (scannerRef.current && window.Html5Qrcode) {
       try {
         scannerRef.current.start(
           { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
+          {
+            fps: 20,
+            qrbox: undefined,
+            aspectRatio: 1.7777,
+            disableFlip: false,
+            videoConstraints: {
+              facingMode: { ideal: "environment" },
+              focusMode: { ideal: "continuous" },
+              advanced: [{ focusMode: "continuous" }]
+            },
+          },
           (text) => {
             if (isProcessingRef.current) return;
             isProcessingRef.current = true;
@@ -2195,15 +2238,30 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
           <div style={{
             position:"absolute", top:0, left:0, right:0, bottom:0,
             display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column",
-            background:"#000", color:C.sand, padding:24, textAlign:"center"
+            background:"#000", color:C.sand, padding:32, textAlign:"center"
           }}>
-            <div style={{ fontSize:42, marginBottom:14 }}>📷</div>
-            <p style={{ fontSize:14, marginBottom:10, lineHeight:1.5 }}>{errorMsg}</p>
+            <div style={{
+              width:64, height:64, borderRadius:"50%",
+              background:`${C.sand}11`, border:`1px solid ${C.sand}33`,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              fontSize:30, marginBottom:20
+            }}>
+              📷
+            </div>
+            <h3 style={{
+              fontFamily:"'Fraunces',serif", fontSize:20, fontWeight:500,
+              marginBottom:10, letterSpacing:"-0.3px"
+            }}>
+              Câmera indisponível
+            </h3>
+            <p style={{ fontSize:14, marginBottom:24, lineHeight:1.5, color:`${C.sand}CC`, maxWidth:280 }}>
+              {errorMsg}
+            </p>
             <button
               onClick={onFallbackPaste}
               style={{
-                marginTop:14, padding:"12px 22px",
-                background:C.sage, border:"none", borderRadius:11,
+                padding:"13px 24px",
+                background:C.sage, border:"none", borderRadius:12,
                 color:C.graphite, fontSize:14, fontWeight:600, cursor:"pointer",
                 fontFamily:"'DM Sans',sans-serif"
               }}
@@ -2259,19 +2317,59 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
           </div>
         )}
 
-        {/* Dica enquanto escaneia */}
+        {/* Dica enquanto escaneia + indicador pulsante */}
         {status === "scanning" && !loading && !error && (
-          <div style={{
-            position:"absolute", bottom:20, left:0, right:0,
-            display:"flex", justifyContent:"center", pointerEvents:"none"
-          }}>
+          <>
+            {/* Cantos guia (4 cantos sutis em vez de caixa cheia) */}
             <div style={{
-              background:"rgba(0,0,0,0.6)", color:C.sand,
-              padding:"8px 14px", borderRadius:8, fontSize:12
+              position:"absolute", top:"50%", left:"50%",
+              transform:"translate(-50%, -50%)",
+              width:"75%", aspectRatio:"1",
+              maxWidth:300, maxHeight:300,
+              pointerEvents:"none"
             }}>
-              Aguardando QR Code...
+              {/* 4 cantos em L */}
+              {[
+                { top:0, left:0, borderTop:`3px solid ${C.sage}`, borderLeft:`3px solid ${C.sage}` },
+                { top:0, right:0, borderTop:`3px solid ${C.sage}`, borderRight:`3px solid ${C.sage}` },
+                { bottom:0, left:0, borderBottom:`3px solid ${C.sage}`, borderLeft:`3px solid ${C.sage}` },
+                { bottom:0, right:0, borderBottom:`3px solid ${C.sage}`, borderRight:`3px solid ${C.sage}` },
+              ].map((style, i) => (
+                <div key={i} style={{
+                  position:"absolute", width:32, height:32, borderRadius:6,
+                  ...style
+                }} />
+              ))}
             </div>
-          </div>
+
+            {/* Dica embaixo */}
+            <div style={{
+              position:"absolute", bottom:24, left:0, right:0,
+              display:"flex", justifyContent:"center", pointerEvents:"none"
+            }}>
+              <div style={{
+                background:"rgba(0,0,0,0.65)", color:C.sand,
+                padding:"9px 16px", borderRadius:20, fontSize:13,
+                display:"flex", alignItems:"center", gap:8,
+                backdropFilter:"blur(8px)"
+              }}>
+                <span style={{
+                  width:8, height:8, borderRadius:"50%",
+                  background:C.sage,
+                  animation:"feiraPulse 1.4s ease-in-out infinite"
+                }} />
+                Procurando QR Code…
+              </div>
+            </div>
+
+            {/* Animação CSS injetada */}
+            <style>{`
+              @keyframes feiraPulse {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                50% { opacity: 0.5; transform: scale(1.4); }
+              }
+            `}</style>
+          </>
         )}
 
         {/* Overlay de loading do fetch (após detectar QR) */}
