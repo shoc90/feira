@@ -2674,7 +2674,19 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
     //  5. Mantém o nome da NF como "nome técnico" mas exibe o nome da lista
 
     // Dicionário de sinônimos: termos da NF → termos do dia a dia
+    // ORDEM IMPORTA: termos com 2 palavras (ex "beb lac") devem vir antes de palavras simples
     const synonymsDict = {
+      // ─── Termos compostos (devem vir PRIMEIRO) ───
+      "beb lac": "bebida láctea",         // "Beb Lac Zer" → "Bebida Láctea Zero"
+      "sab barra": "sabonete barra",      // "Sab Barra Antibac" → "Sabonete Barra Antibac"
+      "goma masc": "goma de mascar",      // "Goma Masc Mentos" → "Goma de Mascar Mentos"
+      "ovo verm": "ovo", "ovo bra": "ovo",
+      "vermelho c": "",
+      "pao f orig": "pão francês",
+      "minas p": "minas padrão",
+      "minas padrao": "minas padrão",
+
+      // ─── Categorias e tipos de produto ───
       "fgo": "frango", "fg": "frango",
       "iog": "iogurte",
       "cerv": "cerveja",
@@ -2683,39 +2695,77 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
       "choc": "chocolate",
       "qa": "", "qj": "queijo",
       "ling": "linguiça",
-      "ovo verm": "ovo", "ovo bra": "ovo", "vermelho c": "",
-      "sad": "sadia",
-      "nat": "natural",
-      "lrnj": "laranja", "lrj": "laranja",
       "mant": "manteiga",
-      "manjar": "",
-      "presid": "president",
-      "trad": "tradicional",
-      "int": "integral",
-      "dan": "danone",
-      "tsonia": "",
-      "ricot": "ricota",
-      "padrao": "padrão",
-      "tilapia": "tilapia",
       "filezinho": "filé",
       "file": "filé",
-      "pao f orig": "pão francês",
       "pao": "pão",
-      "minhoto": "",
+      "beb": "bebida",
+      "sab": "sabonete",
+      "ricot": "ricota",
+      "tilapia": "tilapia",
+      "macarrao": "macarrão",
+      "maca": "maçã",            // "Maca Turma Monica" → "Maçã"
+      "temp": "tempero",         // "Temp Cebola Alho" → "Tempero Cebola Alho"
+      "lrnj": "laranja", "lrj": "laranja",
+      "flocao": "flocão",        // "Flocao Novo Milho" → "Flocão Novo Milho"
+      "aveia": "aveia",
+      "pimentao": "pimentão",    // "Pimentao Vermelho" → "Pimentão Vermelho"
+      "limao": "limão",
+      "feijao": "feijão",
+      "leitao": "leitão",
+      "agriao": "agrião",
+
+      // ─── Descritores ───
+      "antibac": "antibacteriano",  // "Sab Barra Antibac"
+      "se": "sem",                  // "Uva Se Crf" → "Uva Sem Crf"
+      "zer": "zero",                // "Beb Lac Zer" → "Bebida Láctea Zero"
+      "lac": "",                    // (já incorporado em "beb lac")
+      "nat": "natural",
+      "trad": "tradicional",
+      "int": "integral",
+      "fino": "fino",
+      "novo": "novo",
+      "padrao": "padrão",
       "alcool": "álcool",
+      "verde": "verde",
+      "amarelo": "amarelo",
+
+      // ─── Marcas (mantém capitalizado) ───
+      "sad": "Sadia",
+      "dan": "Danone",
+      "presid": "President",
+      "ovomaltine": "Ovomaltine",
+      "nestle": "Nestlé",
+      "betania": "Betânia",
+      "crf": "Carrefour",
+      "ferrero": "Ferrero",
+      "nutella": "Nutella",
+      "mentos": "Mentos",
+      "heineken": "Heineken",
+      "coca": "Coca",
+      "cola": "Cola",
+      "natura": "Natura",
+      "tsonia": "",      // marca pouco conhecida que polui
+
+      // ─── Stopwords (palavras vazias) ───
+      "manjar": "",
+      "minhoto": "",
       "granel": "",
       "extra": "",
-      "kg": "", "g": "", "ml": "", "lt": "", "un": "",
-      "betania": "",
-      // Marcas e descritores que poluem
-      "aperitivo": "",      // "Filé Frango Sadia Aperitivo" → "Filé Frango Sadia"
-      "cong": "",           // "File Fgo Cong Sad1k" → "Filé Frango"
-      "pet": "",            // "Coca Cola Pet 500" → "Coca Cola"
-      "sleek": "",          // "Cerv Heineken 0 Al Sleek" → "Cerveja Heineken"
-      "al": "",             // partícula sem valor
-      "fr": "",             // abreviação genérica
-      "po": "pó",
-      "n": "",              // ruído ("Choc Em Po Sol N Fr 200")
+      "aperitivo": "",
+      "cong": "",
+      "pet": "",
+      "sleek": "",
+      "al": "",
+      "fr": "",
+      "millano": "",
+      "incol": "",
+      "bom": "",
+      "beef": "",
+      "bra": "",
+      "verm": "",
+      "tir": "",
+      "n": "",
       "sol": "",
       "em": "",
       "de": "",
@@ -2724,18 +2774,10 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
       "para": "",
       "com": "",
       "sem": "",
-      "tir": "",            // "QJ Minas Padrão Tir" → "Queijo Minas Padrão"
-      "millano": "",
-      "ovomaltine": "ovomaltine",
-      "incol": "",
-      "bom": "",            // "Cha De Dentro Bom Beef" → "Chã De Dentro"
-      "beef": "",
-      "bra": "",
-      "verm": "",
-      "c": "",              // partícula
-      "p": "",              // partícula curta
-      "ric": "",            // "Creme Ric Presid" pode pegar
-      "minas p": "minas",   // queijo minas padrão
+      "c": "",
+      "p": "",
+      "po": "pó",
+      "kg": "", "g": "", "ml": "", "lt": "", "un": "",
     };
 
     // Remove acentos (Á → A, ç → c)
@@ -2750,9 +2792,14 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
         .trim();
 
     // Aplica sinônimos: substitui termos abreviados da NF pelos amigáveis
+    // Ordena por número de palavras (descendente) para garantir que "beb lac"
+    // seja aplicado antes de "beb" (evita match parcial errado)
+    const sortedSynonyms = Object.entries(synonymsDict).sort(
+      (a, b) => b[0].split(" ").length - a[0].split(" ").length
+    );
     const expandSynonyms = s => {
       let result = " " + normalize(s) + " ";
-      for (const [abbr, full] of Object.entries(synonymsDict)) {
+      for (const [abbr, full] of sortedSynonyms) {
         const re = new RegExp(`\\s${abbr}\\s`, "g");
         result = result.replace(re, ` ${full} `);
       }
@@ -2797,8 +2844,8 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
       // Descritores comuns que não ajudam na lista
       "aperitivo", "cong", "pet", "sleek", "al", "fr", "po",
       "tir", "bra", "verm", "bom", "beef",
-      // Partículas
-      "de", "do", "da", "dos", "das", "em", "para", "com", "sem", "ou", "no", "na",
+      // Partículas (mantemos "de", "sem" porque são importantes em alguns nomes)
+      "do", "da", "dos", "das", "em", "para", "com", "ou", "no", "na",
       "a", "o", "as", "os", "e", "n", "c", "p", "sol",
     ]);
     const makeFriendlyName = (rawName) => {
@@ -2814,10 +2861,27 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
         if (w.length === 1) return false;
         return true;
       });
-      // Pega no máximo 3 palavras (mais concisão)
-      const limited = words.slice(0, 3);
-      // Capitaliza primeira letra de cada palavra
-      return limited.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+      // Partículas: ficam em minúsculo, não contam no limite de 3 palavras "significativas"
+      const particles = new Set(["de", "do", "da", "dos", "das", "sem", "com", "para", "em"]);
+      // Conta apenas palavras significativas (não-partículas) para o limite
+      let significantCount = 0;
+      const result = [];
+      for (const w of words) {
+        const isParticle = particles.has(w.toLowerCase());
+        if (!isParticle) {
+          if (significantCount >= 3) break;
+          significantCount++;
+        }
+        // Partícula = minúscula; outras = capitalizadas
+        result.push(isParticle
+          ? w.toLowerCase()
+          : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+        );
+      }
+      // Remove partículas no início/fim (não fazem sentido)
+      while (result.length > 0 && particles.has(result[0].toLowerCase())) result.shift();
+      while (result.length > 0 && particles.has(result[result.length - 1].toLowerCase())) result.pop();
+      return result.join(" ");
     };
 
     // ─── AGRUPAMENTO INTELIGENTE ────────────────────────────────────
