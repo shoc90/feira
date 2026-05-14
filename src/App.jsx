@@ -3055,8 +3055,8 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
       "absorvente":   { cat: "higiene", desc: [] },
 
       // ─── Bebidas ───
-      "vinho":        { cat: "bebidas", desc: ["tinto","branco","rose","rosé","seco","suave","argentino","chileno","portugues","português"] },
-      "cerveja":      { cat: "bebidas", desc: ["pilsen","ipa","lager","sem","com","alcool","álcool","zero"] },
+      "vinho":        { cat: "bebidas", desc: ["tinto","branco","rose","rosé","seco","suave","argentino","chileno","portugues","português","malbec","cabernet","merlot","sauvignon","carmenere","syrah","tannat","verde"] },
+      "cerveja":      { cat: "bebidas", desc: ["pilsen","ipa","lager","sem","com","alcool","álcool","zero","puro","malte"] },
       "refrigerante": { cat: "bebidas", desc: ["zero","diet","light","cola","guarana","guaraná","limao","limão"] },
       "suco":         { cat: "bebidas", desc: ["laranja","uva","abacaxi","manga","natural","integral","caju","maracuja","maracujá"] },
       "agua":         { cat: "bebidas", desc: ["mineral","gas","gás","sem","com"] },
@@ -3184,12 +3184,16 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
       "extrato":      { cat: "mercearia", desc: ["tomate"] },
 
       // ─── Snacks / Doces ───
-      "goma de mascar":{ cat: "outros", desc: [] },
-      "bala":         { cat: "outros", desc: [] },
-      "pirulito":     { cat: "outros", desc: [] },
-      "barra":        { cat: "outros", desc: ["cereal","chocolate"] },
-      "chips":        { cat: "outros", desc: [] },
-      "batata palha": { cat: "outros", desc: [] },
+      "goma de mascar":{ cat: "mercearia", desc: [] },
+      "bala":         { cat: "mercearia", desc: [] },
+      "pirulito":     { cat: "mercearia", desc: [] },
+      "barra":        { cat: "mercearia", desc: ["cereal","chocolate"] },
+      "chips":        { cat: "mercearia", desc: [] },
+      "batata palha": { cat: "mercearia", desc: [] },
+      "granola":      { cat: "mercearia", desc: [] },
+      "cereal":       { cat: "mercearia", desc: ["matinal"] },
+      "amendoim":     { cat: "mercearia", desc: ["torrado","salgado"] },
+      "castanha":     { cat: "mercearia", desc: ["caju","para","pará"] },
     };
 
     // Lista de marcas/termos que devem ser ignorados na lista (não na NF)
