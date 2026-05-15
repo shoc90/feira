@@ -982,7 +982,7 @@ function ShareModal({ list, currentUserId, onClose }) {
       {activeTab === "invite_email" && isOwner && (
         <div>
           <p style={{ color:C.inkSoft,fontSize:13,marginBottom:14,lineHeight:1.5 }}>
-            Convide alguém pelo email. Se a pessoa já tiver conta no feira, ela é adicionada na hora. Caso contrário, o convite fica pendente até ela criar conta.
+            Envie um email para compartilhar sua lista.
           </p>
           <p style={{ color:C.stone,fontSize:11,marginBottom:6,textTransform:"uppercase",letterSpacing:1 }}>Email</p>
           <input
@@ -1025,7 +1025,7 @@ function ShareModal({ list, currentUserId, onClose }) {
       {activeTab === "invite_link" && isOwner && (
         <div>
           <p style={{ color:C.inkSoft,fontSize:13,marginBottom:14,lineHeight:1.5 }}>
-            Gere um link para compartilhar via WhatsApp, SMS ou outra plataforma. Quem abrir o link e estiver com conta no feira será adicionado.
+            Gere um link para compartilhar sua lista.
           </p>
 
           <p style={{ color:C.stone,fontSize:11,marginBottom:6,textTransform:"uppercase",letterSpacing:1 }}>Permissão</p>
@@ -1964,7 +1964,7 @@ function ScreenHistory({ history, invoices = [], onDeleteRecord, onDeleteMany, o
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [expandedInvoices, setExpandedInvoices] = useState(new Set());
 
-  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"}) : "—";
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit"}) : "—";
   const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "";
   const labelFor = (storeId) => storeId === "store" ? "Loja física" : (STORES.find(s=>s.id===storeId)?.label || "—");
   const emojiFor = (storeId) => storeId === "store" ? "🏪" : (STORES.find(s=>s.id===storeId)?.emoji || "🛒");
@@ -2296,6 +2296,23 @@ function ScreenSettings({ profile, onSave, onLogout }) {
   const [enabledStores, setEnabledStores] = useState(profile?.enabled_stores||["ml","amazon"]);
   const [notifications, setNotifications] = useState(profile?.notifications_enabled!==false);
 
+  // Sincroniza states sempre que o profile for atualizado (ex: após carregar do Supabase)
+  useEffect(() => {
+    if (profile) {
+      setName(profile.name || "");
+      setCep(profile.cep || "");
+      setCepInfo(profile.city ? {
+        logradouro: profile.street || "",
+        bairro: profile.neighborhood || "",
+        localidade: profile.city,
+        uf: profile.state || ""
+      } : null);
+      setMaxDays(profile.max_delivery_days || 7);
+      setEnabledStores(profile.enabled_stores || ["ml","amazon"]);
+      setNotifications(profile.notifications_enabled !== false);
+    }
+  }, [profile?.id, profile?.name, profile?.cep, profile?.city]);
+
   const toggleStore = (id) => setEnabledStores(prev=>prev.includes(id)?prev.filter(s=>s!==id):[...prev,id]);
 
   const handleCepChange = async (v) => {
@@ -2442,10 +2459,10 @@ function RegisterPurchaseModal({ onClose, onChooseMethod }) {
     >
       <div style={{ fontSize:30, flexShrink:0 }}>{emoji}</div>
       <div style={{ flex:1, minWidth:0 }}>
-        <p style={{ color:C.graphite, fontSize:15, fontWeight:500, marginBottom:2 }}>
+        <p style={{ color:C.graphite, fontSize:15, fontWeight:500, marginBottom: desc ? 2 : 0 }}>
           {title} {!available && <span style={{ fontSize:10, color:C.stone, fontWeight:400 }}>· em breve</span>}
         </p>
-        <p style={{ color:C.stone, fontSize:12, lineHeight:1.4 }}>{desc}</p>
+        {desc && <p style={{ color:C.stone, fontSize:12, lineHeight:1.4 }}>{desc}</p>}
       </div>
       {available && <span style={{ color:C.stone, fontSize:18 }}>›</span>}
     </button>
@@ -2462,27 +2479,24 @@ function RegisterPurchaseModal({ onClose, onChooseMethod }) {
       }
     >
       <p style={{ color:C.inkSoft,fontSize:13,marginBottom:16,lineHeight:1.5 }}>
-        Escolha como deseja registrar sua compra de mercado:
+        Escolha como deseja registrar sua compra:
       </p>
 
       <Option
         emoji="📷"
         title="Escanear QR Code"
-        desc="Aponte a câmera para o QR Code do cupom fiscal"
         available={true}
         onClick={() => onChooseMethod("scan")}
       />
       <Option
         emoji="🔗"
         title="Colar link ou chave"
-        desc="Cole o link do cupom (do WhatsApp, email) ou os 44 dígitos da chave"
         available={true}
         onClick={() => onChooseMethod("paste")}
       />
       <Option
         emoji="📸"
         title="Foto do cupom"
-        desc="Tire uma foto do cupom e o app extrai os dados"
         available={false}
       />
     </Modal>
@@ -2698,16 +2712,23 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
       fontFamily:"'DM Sans',sans-serif"
     }}>
       {/* Header */}
-      <div style={{ flexShrink:0, padding:"40px 16px 14px", background:`${C.graphite}EE`, color:C.sand }}>
-        <button onClick={onClose} style={{ background:"none",border:"none",color:C.sand,fontSize:13,cursor:"pointer",marginBottom:10,display:"flex",alignItems:"center",gap:5 }}>
-          ← Cancelar
-        </button>
-        <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:22,fontWeight:500,letterSpacing:"-0.3px" }}>
+      <div style={{ flexShrink:0, padding:"40px 16px 14px", background:`${C.graphite}EE`, color:C.sand, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
+        <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:22,fontWeight:500,letterSpacing:"-0.3px", margin:0 }}>
           Escanear QR Code
         </h2>
-        <p style={{ color:`${C.sand}AA`, fontSize:12, marginTop:4 }}>
-          Aponte a câmera para o QR Code no rodapé do cupom fiscal
-        </p>
+        <button onClick={onClose} style={{
+          background:`${C.sand}11`,
+          border:`1px solid ${C.sand}44`,
+          color:C.sand,
+          fontSize:13,
+          cursor:"pointer",
+          padding:"7px 14px",
+          borderRadius:20,
+          fontFamily:"'DM Sans',sans-serif",
+          flexShrink:0
+        }}>
+          Cancelar
+        </button>
       </div>
 
       {/* Área da câmera */}
@@ -3001,10 +3022,6 @@ function PasteLinkModal({ onClose, onSubmit, loading }) {
         </div>
       }
     >
-      <p style={{ color:C.inkSoft,fontSize:13,marginBottom:14,lineHeight:1.5 }}>
-        Cole aqui o <strong>link do cupom fiscal</strong> que você recebeu por WhatsApp/email, ou os <strong>44 dígitos da chave de acesso</strong>.
-      </p>
-
       <textarea
         style={{ ...inp, minHeight:90, fontFamily:"monospace", fontSize:11, resize:"vertical" }}
         placeholder="https://nfce.sefaz.pe.gov.br:444/...&#10;ou&#10;26260308845439000550651040004177721339111500"
