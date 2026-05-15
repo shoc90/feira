@@ -230,7 +230,25 @@ function NewPasswordScreen({ onDone }) {
       // Após 2s, sinaliza pro App principal voltar pro fluxo normal
       setTimeout(() => { if (onDone) onDone(); }, 2200);
     } catch (e) {
-      setError(e.message || "Não foi possível redefinir a senha. Tente solicitar um novo link.");
+      // Tradução de mensagens comuns do Supabase para PT
+      const rawMsg = String(e.message || "");
+      const translations = {
+        "New password should be different from the old password": "A nova senha precisa ser diferente da anterior",
+        "Password should be at least 6 characters": "A senha precisa ter pelo menos 6 caracteres",
+        "Password is too weak": "A senha está muito fraca. Use letras, números e símbolos",
+        "Auth session missing": "Sua sessão expirou. Solicite um novo link de recuperação",
+        "Invalid token": "Link inválido ou expirado. Solicite um novo",
+        "Token has expired": "Link expirado. Solicite um novo",
+        "User not found": "Conta não encontrada",
+      };
+      let translated = null;
+      for (const [en, pt] of Object.entries(translations)) {
+        if (rawMsg.toLowerCase().includes(en.toLowerCase())) {
+          translated = pt;
+          break;
+        }
+      }
+      setError(translated || "Não foi possível redefinir a senha. Tente solicitar um novo link.");
     }
     setLoading(false);
   };
@@ -336,6 +354,19 @@ function AuthScreen({ pendingInviteToken }) {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [resetError, setResetError] = useState(null);
+  const [resendCountdown, setResendCountdown] = useState(0);  // segundos restantes pra reenviar
+
+  // Efeito: decrementa o contador a cada segundo
+  useEffect(() => {
+    if (resendCountdown <= 0) return;
+    const t = setTimeout(() => setResendCountdown(s => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendCountdown]);
+
+  // Reinicia contador toda vez que um novo email é enviado
+  useEffect(() => {
+    if (resetSent) setResendCountdown(60);
+  }, [resetSent]);
 
   const handleSendResetEmail = async () => {
     const trimmed = resetEmail.trim().toLowerCase();
@@ -354,12 +385,30 @@ function AuthScreen({ pendingInviteToken }) {
     setResetLoading(false);
   };
 
+  // Reenviar o email de recuperação (mesmo email)
+  const handleResend = async () => {
+    if (resendCountdown > 0 || resetLoading) return;
+    setResetLoading(true);
+    try {
+      const { error: e } = await supabase.auth.resetPasswordForEmail(resetEmail.trim().toLowerCase(), {
+        redirectTo: window.location.origin + window.location.pathname,
+      });
+      if (e) throw e;
+      // Reinicia o contador
+      setResendCountdown(60);
+    } catch (e) {
+      setResetError(e.message || "Não foi possível reenviar. Tente em alguns minutos.");
+    }
+    setResetLoading(false);
+  };
+
   const closeResetModal = () => {
     setShowResetModal(false);
     setResetEmail("");
     setResetSent(false);
     setResetError(null);
     setResetLoading(false);
+    setResendCountdown(0);
   };
 
   const handleCepChange = async (v) => {
@@ -596,9 +645,36 @@ function AuthScreen({ pendingInviteToken }) {
                 <p style={{ color:C.stone,fontSize:13,lineHeight:1.5,textAlign:"center",marginBottom:18,fontFamily:"'DM Sans',sans-serif" }}>
                   Enviamos um link para <strong>{resetEmail}</strong>. Toque nele e crie uma nova senha.
                 </p>
-                <p style={{ color:C.stoneSoft,fontSize:11,lineHeight:1.5,textAlign:"center",marginBottom:18,fontFamily:"'DM Sans',sans-serif" }}>
-                  Não recebeu? Verifique a caixa de spam ou tente novamente em alguns minutos.
-                </p>
+
+                {/* Bloco de reenvio com contador */}
+                <div style={{ textAlign:"center", marginBottom:18, fontFamily:"'DM Sans',sans-serif" }}>
+                  <p style={{ color:C.stoneSoft,fontSize:11,lineHeight:1.5,marginBottom:6 }}>
+                    Não recebeu? Verifique a caixa de spam.
+                  </p>
+                  {resendCountdown > 0 ? (
+                    <p style={{ color:C.stoneSoft,fontSize:11 }}>
+                      Reenviar em <strong style={{ color:C.stone }}>{resendCountdown}s</strong>
+                    </p>
+                  ) : (
+                    <button
+                      onClick={handleResend}
+                      disabled={resetLoading}
+                      style={{
+                        background:"none", border:"none",
+                        color:C.sageDeep, fontSize:12, fontWeight:600,
+                        cursor:resetLoading?"wait":"pointer",
+                        textDecoration:"underline", textUnderlineOffset:3,
+                        padding:0, fontFamily:"'DM Sans',sans-serif"
+                      }}
+                    >
+                      {resetLoading?"Reenviando...":"Reenviar email"}
+                    </button>
+                  )}
+                  {resetError && (
+                    <p style={{ color:C.danger,fontSize:11,marginTop:6 }}>{resetError}</p>
+                  )}
+                </div>
+
                 <button
                   onClick={closeResetModal}
                   style={{
