@@ -1232,7 +1232,7 @@ function AcceptInviteScreen({ token, currentUserId, onAccepted, onCancel }) {
 // ═════════════════════════════════════════════════════════════════════
 // ITEM DETAIL MODAL
 // ═════════════════════════════════════════════════════════════════════
-function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased, onUpdateItem, canEdit }) {
+function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased, onUpdateItem, onMergeItems, canEdit, existingItems = [] }) {
   const activeStores = STORES.filter(s => enabledStores.includes(s.id));
   const [tab, setTab] = useState(activeStores[0]?.id || "ml");
 
@@ -1259,6 +1259,27 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased, onUpda
     setEditError(null);
   };
 
+  // Modal de confirmação quando edição gera duplicata
+  // editConflict: { existing, sameUnit, mergedQty }
+  const [editConflict, setEditConflict] = useState(null);
+
+  // Normaliza um nome pra comparação (lowercase, sem acentos, trim)
+  const normalizeForCompare = (s) =>
+    (s || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+
+  // Soma quantidades, mantendo formato (inteiro vs decimal)
+  const sumQuantities = (q1, q2) => {
+    const n1 = parseFloat(String(q1).replace(",", ".")) || 0;
+    const n2 = parseFloat(String(q2).replace(",", ".")) || 0;
+    const total = n1 + n2;
+    if (Number.isInteger(n1) && Number.isInteger(n2)) return String(total);
+    return total.toFixed(3).replace(/\.?0+$/, "");
+  };
+
   const saveEdit = () => {
     const trimmedName = editName.trim();
     if (!trimmedName) {
@@ -1269,13 +1290,52 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased, onUpda
       setEditError("Nome muito longo (máx 80 caracteres)");
       return;
     }
+    const newUnit = editUnit.trim() || "un";
+
+    // Detecta se a edição cria duplicata com outro item da lista
+    // (mesmo nome normalizado, exclui o próprio item, só itens não comprados)
+    const normalized = normalizeForCompare(trimmedName);
+    const conflict = (existingItems || []).find(it =>
+      it.id !== item.id &&
+      !it.done &&
+      normalizeForCompare(it.name) === normalized
+    );
+
+    if (conflict) {
+      // Achou outro item com mesmo nome → mostra modal de confirmação
+      const sameUnit = (conflict.unit || "un") === newUnit;
+      setEditConflict({
+        existing: conflict,
+        sameUnit,
+        mergedQty: sameUnit ? sumQuantities(conflict.qty, editQty.trim() || "1") : null,
+      });
+      return;
+    }
+
+    // Sem conflito → segue normal
     const updates = {
       name: trimmedName,
       qty: editQty.trim() || "1",
-      unit: editUnit.trim() || "un",
+      unit: newUnit,
     };
     if (onUpdateItem) onUpdateItem(updates);
     setIsEditing(false);
+  };
+
+  // Quando usuário confirma mescla (unidades iguais)
+  const handleMergeConfirm = async () => {
+    if (!editConflict || !editConflict.sameUnit || !onMergeItems) return;
+    // Pede ao pai pra fazer: atualizar qty do item existente + deletar o atual
+    await onMergeItems({
+      keepId: editConflict.existing.id,
+      keepName: editConflict.existing.name,  // preserva nome do item que fica
+      removeId: item.id,
+      newQty: editConflict.mergedQty,
+    });
+    // Fecha tudo
+    setEditConflict(null);
+    setIsEditing(false);
+    onClose();
   };
 
   const formatBRL = (v) => {
@@ -1352,6 +1412,7 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased, onUpda
   );
 
   return (
+    <>
     <Modal onClose={onClose} title={titleNode} footer={footer}>
       {/* Formulário de edição (substitui o conteúdo principal quando ativo) */}
       {isEditing ? (
@@ -1557,6 +1618,89 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased, onUpda
       </>
       )}
     </Modal>
+
+    {/* Modal de confirmação quando edição gera duplicata */}
+    {editConflict && (
+      <div
+        style={{ position:"fixed",top:0,bottom:0,left:0,right:0,background:"rgba(15,18,24,0.65)",zIndex:1100,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)",padding:"0 16px" }}
+        onClick={()=>setEditConflict(null)}
+      >
+        <div
+          style={{ background:C.sand,borderRadius:18,width:"100%",maxWidth:380,padding:"22px 22px 18px",boxShadow:"0 10px 40px rgba(0,0,0,0.25)" }}
+          onClick={e=>e.stopPropagation()}
+        >
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"center",marginBottom:12 }}>
+            <div style={{ width:48,height:48,borderRadius:"50%",background:`${C.sage}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22 }}>
+              ⚠️
+            </div>
+          </div>
+
+          {editConflict.sameUnit ? (
+            // Cenário 1: Unidades iguais → oferece juntar
+            <>
+              <h3 style={{ color:C.graphite,fontSize:18,fontFamily:"'Fraunces',serif",fontWeight:500,textAlign:"center",marginBottom:6,letterSpacing:"-0.3px" }}>
+                Já existe esse item na lista
+              </h3>
+              <p style={{ color:C.stone,fontSize:13,lineHeight:1.5,textAlign:"center",marginBottom:18,fontFamily:"'DM Sans',sans-serif" }}>
+                Você já tem <strong style={{ color:C.graphite }}>{editConflict.existing.name}</strong>{" "}
+                <span style={{ color:C.stoneSoft }}>({editConflict.existing.qty} {editConflict.existing.unit})</span>.
+              </p>
+
+              <button
+                onClick={handleMergeConfirm}
+                style={{
+                  width:"100%", padding:"13px", marginBottom:8,
+                  background:C.sage, border:"none", borderRadius:11,
+                  color:C.graphite, fontSize:14, fontWeight:600, cursor:"pointer",
+                  fontFamily:"'DM Sans',sans-serif"
+                }}
+              >
+                ➕ Juntar os dois ({editConflict.mergedQty} {editConflict.existing.unit})
+              </button>
+
+              <button
+                onClick={()=>setEditConflict(null)}
+                style={{
+                  width:"100%", padding:"11px",
+                  background:"transparent", border:`1px solid ${C.linenDim}`, borderRadius:11,
+                  color:C.stone, fontSize:13, fontWeight:500, cursor:"pointer",
+                  fontFamily:"'DM Sans',sans-serif"
+                }}
+              >
+                Cancelar edição
+              </button>
+            </>
+          ) : (
+            // Cenário 2: Unidades diferentes → aviso, sem juntar
+            <>
+              <h3 style={{ color:C.graphite,fontSize:18,fontFamily:"'Fraunces',serif",fontWeight:500,textAlign:"center",marginBottom:6,letterSpacing:"-0.3px" }}>
+                Mesmo nome, unidade diferente
+              </h3>
+              <p style={{ color:C.stone,fontSize:13,lineHeight:1.5,textAlign:"center",marginBottom:6,fontFamily:"'DM Sans',sans-serif" }}>
+                Você já tem <strong style={{ color:C.graphite }}>{editConflict.existing.name}</strong>{" "}
+                <span style={{ color:C.stoneSoft }}>({editConflict.existing.qty} {editConflict.existing.unit})</span>.
+              </p>
+              <p style={{ color:C.stoneSoft,fontSize:12,lineHeight:1.5,textAlign:"center",marginBottom:18,fontFamily:"'DM Sans',sans-serif" }}>
+                Não posso juntar automaticamente porque misturar unidades diferentes ({editConflict.existing.unit} e {editUnit}) pode causar confusão. Ajuste as unidades pra ficarem iguais e tente de novo.
+              </p>
+
+              <button
+                onClick={()=>setEditConflict(null)}
+                style={{
+                  width:"100%", padding:"12px",
+                  background:C.graphite, border:"none", borderRadius:11,
+                  color:C.sand, fontSize:14, fontWeight:500, cursor:"pointer",
+                  fontFamily:"'DM Sans',sans-serif"
+                }}
+              >
+                Entendi
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -2087,6 +2231,7 @@ function ScreenListDetail({ list, items, members, currentUserId, onBack, enabled
           item={openItem}
           enabledStores={enabledStores}
           canEdit={canEdit}
+          existingItems={items}
           onClose={()=>setOpenItem(null)}
           onMarkPurchased={(storeId, price)=>onMarkPurchased(openItem, storeId, price)}
           onUpdateItem={(updates)=>{
@@ -2094,6 +2239,11 @@ function ScreenListDetail({ list, items, members, currentUserId, onBack, enabled
             const updated = { ...openItem, ...updates };
             setOpenItem(updated);
             if (onUpdateItem) onUpdateItem(openItem.id, updates);
+          }}
+          onMergeItems={async ({ keepId, keepName, removeId, newQty }) => {
+            // Mescla: atualiza qty no item que fica + apaga o item editado
+            if (onUpdateItem) await onUpdateItem(keepId, { qty: newQty });
+            if (onDeleteItem) await onDeleteItem(removeId);
           }}
         />
       )}
