@@ -1285,6 +1285,11 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased, onUpda
     return num.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
+  const handleSearchOnly = (productUrl) => {
+    try { window.open(productUrl, "_blank", "noopener,noreferrer"); } catch {}
+    onClose();
+  };
+
   const handleMarkAndOpen = (productUrl, storeId) => {
     try { window.open(productUrl, "_blank", "noopener,noreferrer"); } catch {}
     if (canEdit) onMarkPurchased(storeId, null);
@@ -1507,11 +1512,19 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased, onUpda
               Veja todas as opções para <strong>{item.name}</strong> direto no site da Amazon.
             </p>
             <button
-              onClick={()=>handleMarkAndOpen(amazonSearchUrl(item.name), "amazon")}
-              style={{ width:"100%", padding:"13px", borderRadius:10, fontWeight:600, fontSize:14, background:C.sage, color:C.graphite, border:"none", cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
+              onClick={()=>handleSearchOnly(amazonSearchUrl(item.name))}
+              style={{ width:"100%", padding:"13px", borderRadius:10, fontWeight:600, fontSize:14, background:C.sage, color:C.graphite, border:"none", cursor:"pointer", fontFamily:"'DM Sans',sans-serif", marginBottom:canEdit?8:0 }}
             >
-              {canEdit ? "🔍 Buscar e marcar como comprado" : "🔍 Buscar na Amazon"}
+              🔍 Buscar na Amazon
             </button>
+            {canEdit && (
+              <button
+                onClick={()=>handleMarkAndOpen(amazonSearchUrl(item.name), "amazon")}
+                style={{ width:"100%", padding:"11px", borderRadius:10, fontWeight:500, fontSize:13, background:"transparent", color:C.stone, border:`1px solid ${C.linenDim}`, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
+              >
+                ✓ Buscar e marcar como comprado
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1525,11 +1538,19 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased, onUpda
               Veja todas as opções para <strong>{item.name}</strong> direto no site.
             </p>
             <button
-              onClick={()=>handleMarkAndOpen(mlSearchUrl(item.name), "ml")}
-              style={{ width:"100%", padding:"13px", borderRadius:10, fontWeight:600, fontSize:14, background:C.sage, color:C.graphite, border:"none", cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
+              onClick={()=>handleSearchOnly(mlSearchUrl(item.name))}
+              style={{ width:"100%", padding:"13px", borderRadius:10, fontWeight:600, fontSize:14, background:C.sage, color:C.graphite, border:"none", cursor:"pointer", fontFamily:"'DM Sans',sans-serif", marginBottom:canEdit?8:0 }}
             >
-              {canEdit ? "🔍 Buscar e marcar como comprado" : "🔍 Buscar no ML"}
+              🔍 Buscar no Mercado Livre
             </button>
+            {canEdit && (
+              <button
+                onClick={()=>handleMarkAndOpen(mlSearchUrl(item.name), "ml")}
+                style={{ width:"100%", padding:"11px", borderRadius:10, fontWeight:500, fontSize:13, background:"transparent", color:C.stone, border:`1px solid ${C.linenDim}`, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
+              >
+                ✓ Buscar e marcar como comprado
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1610,21 +1631,75 @@ function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete, canEdit, 
 // ═════════════════════════════════════════════════════════════════════
 // ADD ITEM MODAL
 // ═════════════════════════════════════════════════════════════════════
-function AddItemModal({ onAdd, onClose }) {
+function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem }) {
   const [name, setName] = useState("");
   const [qty, setQty] = useState("1");
   const [unit, setUnit] = useState("un");
   const [note, setNote] = useState("");
   const [category, setCategory] = useState(null);
   const [showCatPicker, setShowCatPicker] = useState(false);
+  // Modal de confirmação quando detecta item duplicado
+  const [duplicateItem, setDuplicateItem] = useState(null);
 
   const effectiveCategory = category || (name.trim() ? guessCategory(name.trim()) : "outros");
   const catObj = CATEGORIES.find(c => c.id === effectiveCategory) || CATEGORIES[9];
   const isSuggested = !category && name.trim();
 
+  // Normaliza um nome pra comparação (lowercase, sem acentos, trim)
+  const normalizeForCompare = (s) =>
+    (s || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+
   const handle = () => {
-    if (!name.trim()) return;
-    onAdd({ name:name.trim(), qty, unit, category: effectiveCategory, note });
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+
+    // Detecta duplicata exata (case insensitive, sem acentos)
+    // Só procura em itens ainda não comprados (done=false)
+    // E só considera duplicata se a UNIDADE também for igual
+    // (ex: "Banana 2 un" + "Banana 0,5 kg" = não é duplicata, é compra diferente)
+    const normalized = normalizeForCompare(trimmedName);
+    const duplicate = (existingItems || []).find(it =>
+      !it.done &&
+      normalizeForCompare(it.name) === normalized &&
+      (it.unit || "un") === unit
+    );
+
+    if (duplicate) {
+      // Mostra modal de confirmação em vez de adicionar direto
+      setDuplicateItem(duplicate);
+      return;
+    }
+
+    onAdd({ name: trimmedName, qty, unit, category: effectiveCategory, note });
+    onClose();
+  };
+
+  // Calcula nova quantidade somando a quantidade atual + a digitada agora
+  const calculateIncrementedQty = (existing) => {
+    const existingQty = parseFloat(String(existing.qty).replace(",", ".")) || 0;
+    const addingQty = parseFloat(String(qty).replace(",", ".")) || 0;
+    const total = existingQty + addingQty;
+    // Se ambos são inteiros, mantém inteiro; senão, mostra com 3 decimais (kg, etc)
+    if (Number.isInteger(existingQty) && Number.isInteger(addingQty)) {
+      return String(total);
+    }
+    return total.toFixed(3).replace(/\.?0+$/, "");
+  };
+
+  const handleIncrement = () => {
+    if (!duplicateItem || !onIncrementItem) return;
+    const newQty = calculateIncrementedQty(duplicateItem);
+    onIncrementItem(duplicateItem, newQty);
+    // onIncrementItem já fecha o modal (chama setShowAdd(false))
+  };
+
+  const handleAddAnyway = () => {
+    // Usuário escolheu adicionar como item separado mesmo assim
+    onAdd({ name: name.trim(), qty, unit, category: effectiveCategory, note });
     onClose();
   };
 
@@ -1675,6 +1750,67 @@ function AddItemModal({ onAdd, onClose }) {
 
       {showCatPicker && (
         <CategoryPicker current={effectiveCategory} onChange={(cid)=>setCategory(cid)} onClose={()=>setShowCatPicker(false)} />
+      )}
+
+      {/* Modal de confirmação quando detecta duplicata */}
+      {duplicateItem && (
+        <div
+          style={{ position:"fixed",top:0,bottom:0,left:0,right:0,background:"rgba(15,18,24,0.65)",zIndex:1100,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)",padding:"0 16px" }}
+          onClick={()=>setDuplicateItem(null)}
+        >
+          <div
+            style={{ background:C.sand,borderRadius:18,width:"100%",maxWidth:380,padding:"22px 22px 18px",boxShadow:"0 10px 40px rgba(0,0,0,0.25)" }}
+            onClick={e=>e.stopPropagation()}
+          >
+            <div style={{ display:"flex",alignItems:"center",justifyContent:"center",marginBottom:12 }}>
+              <div style={{ width:48,height:48,borderRadius:"50%",background:`${C.sage}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22 }}>
+                ⚠️
+              </div>
+            </div>
+            <h3 style={{ color:C.graphite,fontSize:18,fontFamily:"'Fraunces',serif",fontWeight:500,textAlign:"center",marginBottom:6,letterSpacing:"-0.3px" }}>
+              Item já está na lista
+            </h3>
+            <p style={{ color:C.stone,fontSize:13,lineHeight:1.5,textAlign:"center",marginBottom:18,fontFamily:"'DM Sans',sans-serif" }}>
+              Você já tem <strong style={{ color:C.graphite }}>{duplicateItem.name}</strong> na sua lista <span style={{ color:C.stoneSoft }}>({duplicateItem.qty} {duplicateItem.unit})</span>.
+            </p>
+
+            <button
+              onClick={handleIncrement}
+              style={{
+                width:"100%", padding:"13px", marginBottom:8,
+                background:C.sage, border:"none", borderRadius:11,
+                color:C.graphite, fontSize:14, fontWeight:600, cursor:"pointer",
+                fontFamily:"'DM Sans',sans-serif"
+              }}
+            >
+              ➕ Aumentar para {calculateIncrementedQty(duplicateItem)} {duplicateItem.unit}
+            </button>
+
+            <button
+              onClick={handleAddAnyway}
+              style={{
+                width:"100%", padding:"11px", marginBottom:8,
+                background:"transparent", border:`1px solid ${C.linenDim}`, borderRadius:11,
+                color:C.stone, fontSize:13, fontWeight:500, cursor:"pointer",
+                fontFamily:"'DM Sans',sans-serif"
+              }}
+            >
+              Adicionar como novo item
+            </button>
+
+            <button
+              onClick={()=>setDuplicateItem(null)}
+              style={{
+                width:"100%", padding:"10px",
+                background:"transparent", border:"none",
+                color:C.stoneSoft, fontSize:12, cursor:"pointer",
+                fontFamily:"'DM Sans',sans-serif"
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
       )}
     </>
   );
@@ -1933,7 +2069,19 @@ function ScreenListDetail({ list, items, members, currentUserId, onBack, enabled
         <button onClick={()=>setShowAdd(true)} style={{ position:"fixed",bottom:80,right:16,width:54,height:54,borderRadius:"50%",background:C.sage,border:"none",fontSize:26,cursor:"pointer",boxShadow:`0 6px 20px ${C.sage}66, 0 2px 6px rgba(26,31,42,0.15)`,display:"flex",alignItems:"center",justifyContent:"center",color:C.graphite,fontWeight:600,zIndex:100 }}>+</button>
       )}
 
-      {showAdd && <AddItemModal onAdd={async item=>{await onAddItem(item);setShowAdd(false)}} onClose={()=>setShowAdd(false)} />}
+      {showAdd && (
+        <AddItemModal
+          onAdd={async item=>{await onAddItem(item);setShowAdd(false)}}
+          onClose={()=>setShowAdd(false)}
+          existingItems={items}
+          onIncrementItem={async (existingItem, newQtyStr) => {
+            if (onUpdateItem) {
+              await onUpdateItem(existingItem.id, { qty: newQtyStr });
+            }
+            setShowAdd(false);
+          }}
+        />
+      )}
       {openItem && (
         <ItemDetailModal
           item={openItem}
