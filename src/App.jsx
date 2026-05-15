@@ -207,6 +207,118 @@ function formatCep(v) {
 // ═════════════════════════════════════════════════════════════════════
 // AUTH SCREEN
 // ═════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
+// NEW PASSWORD SCREEN (recuperação de senha)
+// Mostrada quando o usuário clica no link enviado por email
+// ═════════════════════════════════════════════════════════════════════
+function NewPasswordScreen({ onDone }) {
+  const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
+
+  const handleSave = async () => {
+    if (!password) { setError("Digite a nova senha"); return; }
+    if (password.length < 6) { setError("Senha precisa ter pelo menos 6 caracteres"); return; }
+    if (password !== passwordConfirm) { setError("As senhas não coincidem"); return; }
+    setLoading(true); setError(null);
+    try {
+      const { error: e } = await supabase.auth.updateUser({ password });
+      if (e) throw e;
+      setSuccess(true);
+      // Após 2s, sinaliza pro App principal voltar pro fluxo normal
+      setTimeout(() => { if (onDone) onDone(); }, 2200);
+    } catch (e) {
+      setError(e.message || "Não foi possível redefinir a senha. Tente solicitar um novo link.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ minHeight:"100vh",background:C.sand,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px",fontFamily:"'DM Sans',sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;500;600&family=DM+Sans:wght@400;500;600&display=swap');
+      `}</style>
+      <div style={{ width:"100%",maxWidth:420,background:"#fff",borderRadius:20,padding:"32px 26px",boxShadow:"0 10px 40px rgba(0,0,0,0.06)" }}>
+        <div style={{ display:"flex",alignItems:"center",justifyContent:"center",marginBottom:18 }}>
+          <FeiraLockup />
+        </div>
+
+        {success ? (
+          <>
+            <div style={{ display:"flex",alignItems:"center",justifyContent:"center",marginBottom:14 }}>
+              <div style={{ width:60,height:60,borderRadius:"50%",background:`${C.sage}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:30 }}>
+                ✓
+              </div>
+            </div>
+            <h2 style={{ color:C.graphite,fontSize:22,fontFamily:"'Fraunces',serif",fontWeight:500,textAlign:"center",marginBottom:8,letterSpacing:"-0.3px" }}>
+              Senha alterada!
+            </h2>
+            <p style={{ color:C.stone,fontSize:13,lineHeight:1.5,textAlign:"center",marginBottom:6 }}>
+              Sua nova senha já está ativa. Estamos te redirecionando...
+            </p>
+          </>
+        ) : (
+          <>
+            <h2 style={{ color:C.graphite,fontSize:22,fontFamily:"'Fraunces',serif",fontWeight:500,textAlign:"center",marginBottom:6,letterSpacing:"-0.3px" }}>
+              Criar nova senha
+            </h2>
+            <p style={{ color:C.stone,fontSize:13,lineHeight:1.5,textAlign:"center",marginBottom:24 }}>
+              Defina uma nova senha para acessar sua conta.
+            </p>
+
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:"block",fontSize:11,color:C.stone,textTransform:"uppercase",letterSpacing:1.2,fontWeight:600,marginBottom:6 }}>
+                Nova senha
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e)=>setPassword(e.target.value)}
+                placeholder="Mínimo 6 caracteres"
+                autoFocus
+                style={{ width:"100%",padding:"12px",background:"#FAF8F4",border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.graphite,fontSize:15,outline:"none",boxSizing:"border-box" }}
+              />
+            </div>
+
+            <div style={{ marginBottom:error?6:18 }}>
+              <label style={{ display:"block",fontSize:11,color:C.stone,textTransform:"uppercase",letterSpacing:1.2,fontWeight:600,marginBottom:6 }}>
+                Confirmar nova senha
+              </label>
+              <input
+                type="password"
+                value={passwordConfirm}
+                onChange={(e)=>setPasswordConfirm(e.target.value)}
+                placeholder="Digite novamente"
+                style={{ width:"100%",padding:"12px",background:"#FAF8F4",border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.graphite,fontSize:15,outline:"none",boxSizing:"border-box" }}
+                onKeyDown={(e)=>{ if(e.key==="Enter") handleSave(); }}
+              />
+            </div>
+
+            {error && (
+              <p style={{ color:C.danger,fontSize:12,marginBottom:14 }}>
+                {error}
+              </p>
+            )}
+
+            <button
+              onClick={handleSave}
+              disabled={loading}
+              style={{ width:"100%",padding:"14px",background:C.graphite,border:"none",borderRadius:12,color:C.sand,fontWeight:500,cursor:loading?"wait":"pointer",fontSize:15,opacity:loading?0.7:1 }}
+            >
+              {loading?"Salvando...":"Salvar nova senha"}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// AUTH SCREEN
+// ═════════════════════════════════════════════════════════════════════
 function AuthScreen({ pendingInviteToken }) {
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
@@ -218,6 +330,37 @@ function AuthScreen({ pendingInviteToken }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [emailSent, setEmailSent] = useState(false);
+  // Recuperação de senha: estados separados
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetError, setResetError] = useState(null);
+
+  const handleSendResetEmail = async () => {
+    const trimmed = resetEmail.trim().toLowerCase();
+    if (!trimmed) { setResetError("Digite seu email"); return; }
+    if (!trimmed.includes("@")) { setResetError("Email inválido"); return; }
+    setResetLoading(true); setResetError(null);
+    try {
+      const { error: e } = await supabase.auth.resetPasswordForEmail(trimmed, {
+        redirectTo: window.location.origin + window.location.pathname,
+      });
+      if (e) throw e;
+      setResetSent(true);
+    } catch (e) {
+      setResetError(e.message || "Não foi possível enviar o email. Tente novamente.");
+    }
+    setResetLoading(false);
+  };
+
+  const closeResetModal = () => {
+    setShowResetModal(false);
+    setResetEmail("");
+    setResetSent(false);
+    setResetError(null);
+    setResetLoading(false);
+  };
 
   const handleCepChange = async (v) => {
     const formatted = formatCep(v);
@@ -365,6 +508,113 @@ function AuthScreen({ pendingInviteToken }) {
       <button onClick={mode==="login"?handleLogin:handleSignup} disabled={loading} style={{ width:"100%",padding:"14px",background:C.graphite,border:"none",borderRadius:12,color:C.sand,fontWeight:500,cursor:loading?"wait":"pointer",fontSize:15,marginTop:18,fontFamily:"'DM Sans',sans-serif",opacity:loading?0.7:1 }}>
         {loading?"Aguarde...":(mode==="login"?"Entrar":"Criar conta")}
       </button>
+
+      {mode==="login" && (
+        <button
+          onClick={()=>{setShowResetModal(true); setResetEmail(email); setResetError(null); setResetSent(false);}}
+          style={{
+            width:"100%", padding:"10px", marginTop:10,
+            background:"transparent", border:"none",
+            color:C.stone, fontSize:13, cursor:"pointer",
+            fontFamily:"'DM Sans',sans-serif",
+            textDecoration:"underline", textUnderlineOffset:3
+          }}
+        >
+          Esqueci minha senha
+        </button>
+      )}
+
+      {/* Modal de recuperação de senha */}
+      {showResetModal && (
+        <div style={{ position:"fixed",top:0,bottom:0,left:0,right:0,background:"rgba(15,18,24,0.65)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)",padding:"0 16px" }} onClick={closeResetModal}>
+          <div style={{ background:C.sand,borderRadius:18,width:"100%",maxWidth:420,padding:"24px",boxShadow:"0 10px 40px rgba(0,0,0,0.25)" }} onClick={e=>e.stopPropagation()}>
+            {!resetSent ? (
+              <>
+                <h3 style={{ color:C.graphite,fontSize:22,fontFamily:"'Fraunces',serif",fontWeight:500,letterSpacing:"-0.3px",marginBottom:8 }}>
+                  Recuperar senha
+                </h3>
+                <p style={{ color:C.stone,fontSize:13,lineHeight:1.5,marginBottom:18,fontFamily:"'DM Sans',sans-serif" }}>
+                  Digite seu email cadastrado. Vamos te enviar um link para criar uma nova senha.
+                </p>
+                <input
+                  type="email"
+                  value={resetEmail}
+                  onChange={(e)=>setResetEmail(e.target.value)}
+                  placeholder="seu@email.com"
+                  autoFocus
+                  style={{
+                    width:"100%", padding:"12px",
+                    background:"#FAF8F4", border:`1px solid ${C.linenDim}`, borderRadius:11,
+                    color:C.graphite, fontSize:15, fontFamily:"'DM Sans',sans-serif",
+                    outline:"none", marginBottom:resetError?6:14, boxSizing:"border-box"
+                  }}
+                  onKeyDown={(e)=>{ if(e.key==="Enter") handleSendResetEmail(); }}
+                />
+                {resetError && (
+                  <p style={{ color:C.danger, fontSize:12, marginBottom:14, fontFamily:"'DM Sans',sans-serif" }}>
+                    {resetError}
+                  </p>
+                )}
+                <div style={{ display:"flex", gap:8 }}>
+                  <button
+                    onClick={closeResetModal}
+                    disabled={resetLoading}
+                    style={{
+                      flex:1, padding:"12px",
+                      background:C.linen, border:`1px solid ${C.linenDim}`, borderRadius:11,
+                      color:C.stone, fontSize:14, cursor:resetLoading?"wait":"pointer",
+                      fontFamily:"'DM Sans',sans-serif"
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleSendResetEmail}
+                    disabled={resetLoading}
+                    style={{
+                      flex:2, padding:"12px",
+                      background:C.graphite, border:"none", borderRadius:11,
+                      color:C.sand, fontSize:14, fontWeight:500,
+                      cursor:resetLoading?"wait":"pointer",
+                      fontFamily:"'DM Sans',sans-serif", opacity:resetLoading?0.7:1
+                    }}
+                  >
+                    {resetLoading?"Enviando...":"Enviar link"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"center", marginBottom:14 }}>
+                  <div style={{ width:54, height:54, borderRadius:"50%", background:`${C.sage}33`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:26 }}>
+                    📧
+                  </div>
+                </div>
+                <h3 style={{ color:C.graphite,fontSize:20,fontFamily:"'Fraunces',serif",fontWeight:500,textAlign:"center",marginBottom:8 }}>
+                  Verifique seu email
+                </h3>
+                <p style={{ color:C.stone,fontSize:13,lineHeight:1.5,textAlign:"center",marginBottom:18,fontFamily:"'DM Sans',sans-serif" }}>
+                  Enviamos um link para <strong>{resetEmail}</strong>. Toque nele e crie uma nova senha.
+                </p>
+                <p style={{ color:C.stoneSoft,fontSize:11,lineHeight:1.5,textAlign:"center",marginBottom:18,fontFamily:"'DM Sans',sans-serif" }}>
+                  Não recebeu? Verifique a caixa de spam ou tente novamente em alguns minutos.
+                </p>
+                <button
+                  onClick={closeResetModal}
+                  style={{
+                    width:"100%", padding:"12px",
+                    background:C.graphite, border:"none", borderRadius:11,
+                    color:C.sand, fontSize:14, fontWeight:500, cursor:"pointer",
+                    fontFamily:"'DM Sans',sans-serif"
+                  }}
+                >
+                  Entendi
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3755,6 +4005,8 @@ export default function App() {
   const [listMembers, setListMembers] = useState({}); // { list_id: [members] }
   const [activeListMembers, setActiveListMembers] = useState([]);
   const [pendingInviteToken, setPendingInviteToken] = useState(null);
+  // Flag: usuário veio do link de recuperação de senha (precisa criar nova senha)
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
   // ── Estados de registro de compra (NF-e) ───────────────────────────
   // invoiceFlow: null | "choose" | "paste" | "preview"
@@ -3777,7 +4029,15 @@ export default function App() {
     supabase.auth.getSession().then(({ data: { session }}) => {
       setSession(session); setLoading(false);
     });
-    const { data: { subscription }} = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
+    const { data: { subscription }} = supabase.auth.onAuthStateChange((event, session) => {
+      // Quando o usuário clica no link de recuperação de senha, o Supabase
+      // dispara o evento PASSWORD_RECOVERY. Marcamos isso pra mostrar a tela
+      // de "Definir nova senha" em vez do app normal.
+      if (event === "PASSWORD_RECOVERY") {
+        setIsPasswordRecovery(true);
+      }
+      setSession(session);
+    });
     return () => subscription.unsubscribe();
   }, []);
 
@@ -4361,6 +4621,12 @@ export default function App() {
   }
 
   if (!session) return <AuthScreen pendingInviteToken={pendingInviteToken} />;
+
+  // Se está em modo recuperação de senha (veio do link de email), mostra a
+  // tela de "Definir nova senha" em vez do app
+  if (isPasswordRecovery) {
+    return <NewPasswordScreen onDone={() => setIsPasswordRecovery(false)} />;
+  }
 
   // Se tem token de convite e está logado, mostra tela de aceite
   if (pendingInviteToken && session) {
