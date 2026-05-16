@@ -82,6 +82,167 @@ function guessCategory(name) {
   return "outros";
 }
 
+// ═════════════════════════════════════════════════════════════════════
+// PARSER DE TEXTO IMPORTADO (Apple Notes, Google Keep, WhatsApp, etc)
+// Estrutura: cada linha = 1 item potencial
+// Detecta: bullets, números, quantidades, unidades, estado (marcado/desmarcado)
+// ═════════════════════════════════════════════════════════════════════
+
+// Capitaliza primeira letra de cada palavra significativa
+function capitalizeWords(str) {
+  if (!str) return "";
+  const lowercase = str.toLowerCase();
+  // Partículas que ficam em minúsculo no meio
+  const particles = new Set(["de","do","da","dos","das","e","com","sem","para","em","no","na"]);
+  return lowercase.split(/\s+/).map((word, idx) => {
+    if (idx > 0 && particles.has(word)) return word;
+    if (!word) return word;
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }).join(" ");
+}
+
+// Detecta unidade no texto e retorna { qty, unit, rest }
+// Ex: "2 kg arroz" → { qty: "2", unit: "kg", rest: "arroz" }
+// Ex: "5 bananas" → { qty: "5", unit: "un", rest: "bananas" }
+function extractQtyAndUnit(text) {
+  if (!text) return { qty: "1", unit: "un", rest: "" };
+  let working = text.trim();
+  let qty = "1";
+  let unit = "un";
+
+  // Padrão 1: "2 kg arroz" ou "0,5 kg arroz" ou "1,5 litros leite"
+  // Captura número (com vírgula/ponto opcional) + unidade + resto
+  const unitPatterns = [
+    { regex: /^(\d+(?:[.,]\d+)?)\s*(kg|kilo|kilos)\b\s*(.*)/i, unit: "kg" },
+    { regex: /^(\d+(?:[.,]\d+)?)\s*(g|gr|gramas?)\b\s*(.*)/i, unit: "g" },
+    { regex: /^(\d+(?:[.,]\d+)?)\s*(l|litro|litros)\b\s*(.*)/i, unit: "l" },
+    { regex: /^(\d+(?:[.,]\d+)?)\s*(ml|mililitros?)\b\s*(.*)/i, unit: "ml" },
+    { regex: /^(\d+(?:[.,]\d+)?)\s*(un|unid|unidades?)\b\s*(.*)/i, unit: "un" },
+    { regex: /^(\d+(?:[.,]\d+)?)\s*(cx|caixas?)\b\s*(.*)/i, unit: "cx" },
+    { regex: /^(\d+(?:[.,]\d+)?)\s*(pct|pacotes?)\b\s*(.*)/i, unit: "pct" },
+    { regex: /^(\d+(?:[.,]\d+)?)\s*(dz|duzias?|dúzias?)\b\s*(.*)/i, unit: "dz" },
+  ];
+  for (const p of unitPatterns) {
+    const m = working.match(p.regex);
+    if (m) {
+      qty = m[1].replace(",", ".");
+      unit = p.unit;
+      return { qty, unit, rest: m[3].trim() };
+    }
+  }
+
+  // Padrão 2: "5 bananas" / "2 ovos" (número sem unidade explícita = un)
+  const numFirst = working.match(/^(\d+(?:[.,]\d+)?)\s+(.+)/);
+  if (numFirst) {
+    qty = numFirst[1].replace(",", ".");
+    return { qty, unit: "un", rest: numFirst[2].trim() };
+  }
+
+  // Padrão 3: "banana x2" / "leite x 3"
+  const xPattern = working.match(/^(.+?)\s*[xX×]\s*(\d+)\s*$/);
+  if (xPattern) {
+    return { qty: xPattern[2], unit: "un", rest: xPattern[1].trim() };
+  }
+
+  // Sem quantidade detectada
+  return { qty: "1", unit: "un", rest: working };
+}
+
+// Detecta se uma linha está marcada como concluida no texto original
+// Ex: "✓ leite", "[x] pão", "- [x] arroz"
+function detectChecked(line) {
+  if (!line) return { checked: false, rest: line };
+  // Padrões de "marcado": ✓ ✔ ☑ [x] [X] [✓]
+  const checkedPattern = /^[\s\-•*►→]*(✓|✔|☑|\[\s*[xX✓]\s*\])\s*(.*)/;
+  const m = line.match(checkedPattern);
+  if (m) return { checked: true, rest: m[2].trim() };
+  // Padrões de "desmarcado": [ ] [_] □ ☐
+  const uncheckedPattern = /^[\s\-•*►→]*(□|☐|\[\s*\])\s*(.*)/;
+  const m2 = line.match(uncheckedPattern);
+  if (m2) return { checked: false, rest: m2[2].trim() };
+  return { checked: false, rest: line };
+}
+
+// Remove bullets, números de lista, e caracteres decorativos do início
+function stripBullets(line) {
+  if (!line) return "";
+  let result = line
+    // Remove bullets: • - * ► → ◦ · ‣ + emojis decorativos
+    .replace(/^[\s•\-*►→◦·‣]+/, "");
+  // Remove numeração de lista: "1." ou "1)" ou "1 -" ou "1:"
+  // IMPORTANTE: só matcheia se o número for SEGUIDO por separador,
+  // não confundir com quantidade tipo "1.5kg" ou "2 bananas"
+  // Padrão: dígitos + separador (.)|()  + espaço/tab
+  result = result.replace(/^(\d+)([.)\-:])\s+/, (match, num, sep) => {
+    // Se for "1." ou "1)" seguido de espaço → numeração (remover)
+    // Se for "1.5" sem espaço → quantidade (manter)
+    return "";
+  });
+  return result.trim();
+}
+
+// Remove conectores que sobram após extrair quantidade
+// Ex: "1kg de carne" → após extrair "1kg", sobra "de carne". Remove "de" do início.
+function stripLeadingConnectors(text) {
+  if (!text) return "";
+  return text.replace(/^(de|do|da|dos|das)\s+/i, "").trim();
+}
+
+// Parser principal: recebe texto e retorna array de itens detectados
+function parseImportedList(text) {
+  if (!text || typeof text !== "string") return [];
+  const lines = text.split(/\r?\n/);
+  const items = [];
+
+  for (let line of lines) {
+    if (!line || !line.trim()) continue;
+
+    // 1. Detecta se está marcado como comprado
+    const { checked, rest: afterCheck } = detectChecked(line);
+
+    // 2. Remove bullets e numeração
+    let cleaned = stripBullets(afterCheck);
+    if (!cleaned) continue;
+
+    // 3. Remove emojis decorativos no início (📝, 🛒, etc)
+    cleaned = cleaned.replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]+\s*/u, "").trim();
+    if (!cleaned) continue;
+
+    // 4. Linhas com 1 caractere só ou só números (ex: "1", "2") são ignoradas
+    if (cleaned.length < 2 || /^\d+$/.test(cleaned)) continue;
+
+    // 5. Linhas que parecem títulos/seções (terminam em ":") são puladas
+    if (cleaned.endsWith(":") && cleaned.length < 40) continue;
+
+    // 6. Extrai quantidade e unidade
+    const { qty, unit, rest } = extractQtyAndUnit(cleaned);
+
+    // 7. Remove conectores ("de", "do", "da") que sobraram
+    const finalRest = stripLeadingConnectors(rest);
+
+    // 8. Se ficou vazio ou muito curto, pula
+    if (!finalRest || finalRest.length < 2) continue;
+
+    // 9. Aplica nome amigável
+    const friendlyName = capitalizeWords(finalRest);
+
+    // 10. Categoriza
+    const category = guessCategory(finalRest);
+
+    items.push({
+      name: friendlyName,
+      qty,
+      unit,
+      category,
+      done: checked,  // preserva estado original
+      _originalLine: line.trim(),
+    });
+  }
+
+  return items;
+}
+
+
 const LIST_ICONS = ["🛒","🏗️","🏠","🎁","🐾","💊","📚","🌿","🧺","⚽"];
 const STORES = [
   { id:"ml", label:"Mercado Livre", short:"Mercado Livre", emoji:"🛍️" },
@@ -1785,6 +1946,60 @@ function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem }) {
   // Modal de confirmação quando detecta item duplicado
   const [duplicateItem, setDuplicateItem] = useState(null);
 
+  // ─── IMPORTAÇÃO DE TEXTO ─────────────────────────────────────────
+  const [mode, setMode] = useState("manual");  // "manual" | "import"
+  const [importText, setImportText] = useState("");
+  // Cada item do preview: { name, qty, unit, category, done, _selected }
+  // _selected = se vai ser importado (checkbox lateral)
+  const [importPreview, setImportPreview] = useState([]);
+  const [importStep, setImportStep] = useState("input");  // "input" | "preview"
+
+  const handleParse = () => {
+    if (!importText.trim()) return;
+    const parsed = parseImportedList(importText);
+    // Inicializa todos com _selected: true (usuário pode desmarcar individualmente)
+    const withSelected = parsed.map(p => ({ ...p, _selected: true }));
+    setImportPreview(withSelected);
+    setImportStep("preview");
+  };
+
+  const togglePreviewSelected = (idx) => {
+    setImportPreview(prev => prev.map((it, i) =>
+      i === idx ? { ...it, _selected: !it._selected } : it
+    ));
+  };
+
+  const togglePreviewDone = (idx) => {
+    setImportPreview(prev => prev.map((it, i) =>
+      i === idx ? { ...it, done: !it.done } : it
+    ));
+  };
+
+  const updatePreviewName = (idx, newName) => {
+    setImportPreview(prev => prev.map((it, i) =>
+      i === idx ? { ...it, name: newName } : it
+    ));
+  };
+
+  const handleConfirmImport = async () => {
+    const toImport = importPreview.filter(it => it._selected && it.name.trim());
+    if (toImport.length === 0) return;
+    // Adiciona cada item (incluindo done=true se o usuário marcou)
+    for (const it of toImport) {
+      await onAdd({
+        name: it.name.trim(),
+        qty: it.qty,
+        unit: it.unit,
+        category: it.category,
+        note: "",
+        done: it.done,
+      });
+    }
+    onClose();
+  };
+
+  const selectedCount = importPreview.filter(it => it._selected).length;
+
   const effectiveCategory = category || (name.trim() ? guessCategory(name.trim()) : "outros");
   const catObj = CATEGORIES.find(c => c.id === effectiveCategory) || CATEGORIES[9];
   const isSuggested = !category && name.trim();
@@ -1853,12 +2068,67 @@ function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem }) {
         onClose={onClose}
         title="Novo item"
         footer={
-          <div style={{ display:"flex",gap:8 }}>
-            <button onClick={onClose} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>Cancelar</button>
-            <button onClick={handle} style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:"pointer",fontSize:15,fontFamily:"'DM Sans',sans-serif" }}>Adicionar</button>
-          </div>
+          mode === "manual" ? (
+            <div style={{ display:"flex",gap:8 }}>
+              <button onClick={onClose} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>Cancelar</button>
+              <button onClick={handle} style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:"pointer",fontSize:15,fontFamily:"'DM Sans',sans-serif" }}>Adicionar</button>
+            </div>
+          ) : importStep === "input" ? (
+            <div style={{ display:"flex",gap:8 }}>
+              <button onClick={onClose} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>Cancelar</button>
+              <button
+                onClick={handleParse}
+                disabled={!importText.trim()}
+                style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:importText.trim()?"pointer":"not-allowed",fontSize:15,fontFamily:"'DM Sans',sans-serif",opacity:importText.trim()?1:0.5 }}
+              >
+                Detectar itens
+              </button>
+            </div>
+          ) : (
+            <div style={{ display:"flex",gap:8 }}>
+              <button onClick={()=>setImportStep("input")} style={{ flex:1,padding:"13px",background:C.linen,border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.stone,cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif" }}>Voltar</button>
+              <button
+                onClick={handleConfirmImport}
+                disabled={selectedCount === 0}
+                style={{ flex:2,padding:"13px",background:C.graphite,border:"none",borderRadius:11,color:C.sand,fontWeight:500,cursor:selectedCount>0?"pointer":"not-allowed",fontSize:15,fontFamily:"'DM Sans',sans-serif",opacity:selectedCount>0?1:0.5 }}
+              >
+                Importar {selectedCount} {selectedCount === 1 ? "item" : "itens"}
+              </button>
+            </div>
+          )
         }
       >
+        {/* Tabs: Manual vs Importar */}
+        <div style={{ display:"flex",gap:4,background:C.linen,padding:3,borderRadius:11,marginBottom:14 }}>
+          <button
+            onClick={()=>setMode("manual")}
+            style={{
+              flex:1, padding:"9px 6px", borderRadius:9, border:"none",
+              background: mode === "manual" ? C.sand : "transparent",
+              color: mode === "manual" ? C.graphite : C.stone,
+              fontSize:13, fontWeight: mode === "manual" ? 600 : 500,
+              cursor:"pointer", fontFamily:"'DM Sans',sans-serif",
+              boxShadow: mode === "manual" ? "0 1px 3px rgba(0,0,0,0.06)" : "none"
+            }}
+          >
+            Manual
+          </button>
+          <button
+            onClick={()=>setMode("import")}
+            style={{
+              flex:1, padding:"9px 6px", borderRadius:9, border:"none",
+              background: mode === "import" ? C.sand : "transparent",
+              color: mode === "import" ? C.graphite : C.stone,
+              fontSize:13, fontWeight: mode === "import" ? 600 : 500,
+              cursor:"pointer", fontFamily:"'DM Sans',sans-serif",
+              boxShadow: mode === "import" ? "0 1px 3px rgba(0,0,0,0.06)" : "none"
+            }}
+          >
+            Importar de texto
+          </button>
+        </div>
+
+        {mode === "manual" ? (
         <div style={{ display:"flex",flexDirection:"column",gap:9 }}>
           <input style={inp} placeholder="Nome do item" value={name} onChange={e=>setName(e.target.value)} autoFocus onKeyDown={e=>e.key==="Enter"&&handle()} />
 
@@ -1890,6 +2160,108 @@ function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem }) {
           </div>
           <input style={inp} placeholder="Observação (opcional)" value={note} onChange={e=>setNote(e.target.value)} />
         </div>
+        ) : importStep === "input" ? (
+          // ─── Modo importação: input do texto ───
+          <div>
+            <p style={{ color:C.inkSoft, fontSize:13, lineHeight:1.5, marginBottom:12, fontFamily:"'DM Sans',sans-serif" }}>
+              Cole sua lista de qualquer app (Apple Notes, Google Keep, WhatsApp, etc).
+            </p>
+            <textarea
+              value={importText}
+              onChange={(e)=>setImportText(e.target.value)}
+              placeholder={"Ex:\n• 2 bananas\n- leite\n1 kg arroz\n☐ ovos\n✓ pão"}
+              autoFocus
+              style={{
+                width:"100%", minHeight:160, padding:"11px 12px",
+                background:"#FAF8F4", border:`1px solid ${C.linenDim}`, borderRadius:11,
+                color:C.graphite, fontSize:14, fontFamily:"'DM Sans',sans-serif",
+                outline:"none", resize:"vertical", boxSizing:"border-box", lineHeight:1.5
+              }}
+            />
+            <p style={{ color:C.stoneSoft, fontSize:11, lineHeight:1.5, marginTop:8, fontFamily:"'DM Sans',sans-serif" }}>
+              💡 O app detecta automaticamente quantidades (ex: "2 kg arroz"), itens marcados como concluídos (✓, [x]), bullets e numeração.
+            </p>
+          </div>
+        ) : (
+          // ─── Modo importação: preview ───
+          <div>
+            {importPreview.length === 0 ? (
+              <div style={{ padding:"24px 16px", textAlign:"center" }}>
+                <div style={{ fontSize:30, marginBottom:8 }}>🤔</div>
+                <p style={{ color:C.stone, fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
+                  Não consegui identificar nenhum item no texto. Volte e tente colar novamente.
+                </p>
+              </div>
+            ) : (
+              <>
+                <p style={{ color:C.inkSoft, fontSize:13, marginBottom:12, fontFamily:"'DM Sans',sans-serif" }}>
+                  Encontrei <strong>{importPreview.length}</strong> {importPreview.length === 1 ? "item" : "itens"}.
+                  Desmarque o que não quiser importar.
+                </p>
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {importPreview.map((it, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        display:"flex", alignItems:"center", gap:10,
+                        padding:"9px 11px",
+                        background: it._selected ? "#FAF8F4" : C.linenDim,
+                        border:`1px solid ${C.linenDim}`,
+                        borderRadius:9,
+                        opacity: it._selected ? 1 : 0.5,
+                        fontFamily:"'DM Sans',sans-serif"
+                      }}
+                    >
+                      {/* Checkbox: importar ou não */}
+                      <button
+                        onClick={()=>togglePreviewSelected(idx)}
+                        style={{
+                          width:22, height:22, borderRadius:5,
+                          background: it._selected ? C.sage : C.sand,
+                          border:`1.5px solid ${it._selected ? C.sage : C.linenDim}`,
+                          display:"flex", alignItems:"center", justifyContent:"center",
+                          cursor:"pointer", flexShrink:0, padding:0
+                        }}
+                      >
+                        {it._selected && <span style={{ color:C.graphite, fontSize:13, fontWeight:700 }}>✓</span>}
+                      </button>
+                      {/* Nome (editável inline) */}
+                      <input
+                        type="text"
+                        value={it.name}
+                        onChange={(e)=>updatePreviewName(idx, e.target.value)}
+                        style={{
+                          flex:1, minWidth:0, padding:"4px 6px",
+                          background:"transparent", border:"none",
+                          color:C.graphite, fontSize:14,
+                          textDecoration: it.done ? "line-through" : "none",
+                          opacity: it.done ? 0.6 : 1,
+                          outline:"none",
+                          fontFamily:"'DM Sans',sans-serif"
+                        }}
+                      />
+                      {/* Qtd + Unidade */}
+                      <span style={{ color:C.stoneSoft, fontSize:12, whiteSpace:"nowrap", flexShrink:0 }}>
+                        {it.qty} {it.unit}
+                      </span>
+                      {/* Estado: comprado ou não (toggle) */}
+                      <button
+                        onClick={()=>togglePreviewDone(idx)}
+                        title={it.done ? "Marcado como comprado (clique para desmarcar)" : "Não comprado (clique para marcar)"}
+                        style={{
+                          background:"transparent", border:"none",
+                          fontSize:14, cursor:"pointer", padding:"4px 6px", flexShrink:0
+                        }}
+                      >
+                        {it.done ? "☑️" : "⬜"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </Modal>
 
       {showCatPicker && (
@@ -4630,7 +5002,15 @@ export default function App() {
   };
 
   const addItem = async (item) => {
-    const { data } = await supabase.from("items").insert({ ...item, list_id: activeList.id, user_id: session.user.id }).select().single();
+    // Se vier com done=true (ex: importação de texto com item marcado),
+    // adiciona bought_date pro item aparecer corretamente, mas SEM bought_at
+    // (loja) ou preço — porque importação não tem essas informações.
+    // Importante: NÃO gera entrada em purchase_history (que requer dados de loja).
+    const payload = { ...item, list_id: activeList.id, user_id: session.user.id };
+    if (payload.done) {
+      payload.bought_date = payload.bought_date || new Date().toISOString();
+    }
+    const { data } = await supabase.from("items").insert(payload).select().single();
     if (data) setItems(prev => [...prev, data]);
   };
 
