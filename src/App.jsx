@@ -83,35 +83,592 @@ function guessCategory(name) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// PARSER DE TEXTO IMPORTADO (Apple Notes, Google Keep, WhatsApp, etc)
-// Estrutura: cada linha = 1 item potencial
-// Detecta: bullets, números, quantidades, unidades, estado (marcado/desmarcado)
+// NORMALIZAÇÃO DE NOMES (dicionários e helpers globais)
+// Usados tanto pela importação de NF quanto pela importação de texto.
 // ═════════════════════════════════════════════════════════════════════
 
-// Capitaliza primeira letra de cada palavra significativa
-function capitalizeWords(str) {
-  if (!str) return "";
-  const lowercase = str.toLowerCase();
-  // Partículas que ficam em minúsculo no meio
-  const particles = new Set(["de","do","da","dos","das","e","com","sem","para","em","no","na"]);
-  return lowercase.split(/\s+/).map((word, idx) => {
-    if (idx > 0 && particles.has(word)) return word;
-    if (!word) return word;
-    return word.charAt(0).toUpperCase() + word.slice(1);
-  }).join(" ");
+// Embalagens que devem ser removidas do início do nome
+// Ex: "01 pote de manteiga" → remove "pote de" → "manteiga"
+const PACKAGING_PREFIXES = [
+  "pote", "potes",
+  "pacote", "pacotes", "pct",
+  "caixa", "caixas", "cx",
+  "garrafa", "garrafas",
+  "lata", "latas",
+  "saco", "sacos",
+  "sachê", "sache", "sachet", "sachês", "saches",
+  "duzia", "dúzia", "duzias", "dúzias", "dz",
+  "pedaço", "pedaco", "pedaços", "pedacos",
+  "bandeja", "bandejas",
+  "frasco", "frascos",
+  "tubo", "tubos",
+  "fardo", "fardos",
+];
+
+// Remove embalagem no início + conector "de/do/da" (uma ou duas vezes)
+// "01 pote de manteiga" (qty já extraída) → "manteiga"
+// "01 pacote Açúcar" → "Açúcar"
+function stripPackagingPrefix(text) {
+  if (!text) return "";
+  let working = text.trim();
+  let changed = true;
+  // Roda até estabilizar (caso tenha "01 pacote de caixa de"...)
+  while (changed) {
+    changed = false;
+    const lower = working.toLowerCase();
+    for (const pkg of PACKAGING_PREFIXES) {
+      // Match "pacote " ou "pacote de " no início
+      const reWithDe = new RegExp(`^${pkg}\\s+(de|do|da|dos|das)\\s+`, "i");
+      const reAlone = new RegExp(`^${pkg}\\s+`, "i");
+      if (reWithDe.test(working)) {
+        working = working.replace(reWithDe, "");
+        changed = true;
+        break;
+      } else if (reAlone.test(working)) {
+        working = working.replace(reAlone, "");
+        changed = true;
+        break;
+      }
+    }
+  }
+  return working.trim();
 }
+
+// Dicionário de sinônimos: termos da NF → termos do dia a dia
+// ORDEM IMPORTA: termos com 2 palavras (ex "beb lac") devem vir antes de palavras simples
+const synonymsDict = {
+  // ─── Termos compostos (devem vir PRIMEIRO) ───
+  "beb lac": "bebida láctea",         // "Beb Lac Zer" → "Bebida Láctea Zero"
+  "sab barra": "sabonete barra",      // "Sab Barra Antibac" → "Sabonete Barra Antibac"
+  "goma masc": "goma de mascar",      // "Goma Masc Mentos" → "Goma de Mascar Mentos"
+  "ovo verm": "ovo", "ovo bra": "ovo",
+  "vermelho c": "",
+  "pao f orig": "pão francês",
+  "minas p": "minas padrão",
+  "minas padrao": "minas padrão",
+
+  // ─── Categorias e tipos de produto ───
+  "fgo": "frango", "fg": "frango",
+  "iog": "iogurte",
+  "cerv": "cerveja",
+  "refrig": "refrigerante",
+  "achoc": "achocolatado", "ach": "achocolatado",
+  "choc": "chocolate",
+  "qa": "", "qj": "queijo",
+  "ling": "linguiça",
+  "mant": "manteiga",
+  "filezinho": "filé",
+  "file": "filé",
+  "pao": "pão",
+  "beb": "bebida",
+  "sab": "sabonete",
+  "ricot": "ricota",
+  "tilapia": "tilapia",
+  "macarrao": "macarrão",
+  "maca": "maçã",            // "Maca Turma Monica" → "Maçã"
+  "temp": "tempero",         // "Temp Cebola Alho" → "Tempero Cebola Alho"
+  "lrnj": "laranja", "lrj": "laranja",
+  "flocao": "flocão",        // "Flocao Novo Milho" → "Flocão Novo Milho"
+  "aveia": "aveia",
+  "pimentao": "pimentão",    // "Pimentao Vermelho" → "Pimentão Vermelho"
+  "limao": "limão",
+  "feijao": "feijão",
+  "leitao": "leitão",
+  "agriao": "agrião",
+
+  // ─── Descritores ───
+  "antibac": "antibacteriano",  // "Sab Barra Antibac"
+  "se": "sem",                  // "Uva Se Crf" → "Uva Sem Crf"
+  "zer": "zero",                // "Beb Lac Zer" → "Bebida Láctea Zero"
+  "lac": "",                    // (já incorporado em "beb lac")
+  "nat": "natural",
+  "trad": "tradicional",
+  "int": "integral",
+  "fino": "fino",
+  "novo": "novo",
+  "padrao": "padrão",
+  "alcool": "álcool",
+  "verde": "verde",
+  "amarelo": "amarelo",
+
+  // ─── Marcas (mantém capitalizado) ───
+  "sad": "Sadia",
+  "dan": "Danone",
+  "presid": "President",
+  "ovomaltine": "Ovomaltine",
+  "nestle": "Nestlé",
+  "betania": "Betânia",
+  "crf": "Carrefour",
+  "ferrero": "Ferrero",
+  "nutella": "Nutella",
+  "mentos": "Mentos",
+  "heineken": "Heineken",
+  "coca": "Coca",
+  "cola": "Cola",
+  "natura": "Natura",
+  "tsonia": "",      // marca pouco conhecida que polui
+
+  // ─── Stopwords (palavras vazias) ───
+  "manjar": "",
+  "minhoto": "",
+  "granel": "",
+  "extra": "",
+  "aperitivo": "",
+  "cong": "",
+  "pet": "",
+  "sleek": "",
+  "al": "",
+  "fr": "",
+  "millano": "",
+  "incol": "",
+  "bom": "",
+  "beef": "",
+  "bra": "",
+  "verm": "",
+  "tir": "",
+  "n": "",
+  "sol": "",
+  "em": "",
+  "de": "",
+  "do": "",
+  "da": "",
+  "para": "",
+  "com": "",
+  "sem": "",
+  "c": "",
+  "p": "",
+  "po": "pó",
+  "kg": "", "g": "", "ml": "", "lt": "", "un": "",
+};
+// Remove acentos (Á → A, ç → c)
+const removeAccents = s => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+// Normaliza: lower, sem acentos, sem caracteres não alfabéticos
+const normalize = s =>
+  removeAccents(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+// Aplica sinônimos: substitui termos abreviados da NF pelos amigáveis
+// Ordena por número de palavras (descendente) para garantir que "beb lac"
+// seja aplicado antes de "beb" (evita match parcial errado)
+const sortedSynonyms = Object.entries(synonymsDict).sort(
+  (a, b) => b[0].split(" ").length - a[0].split(" ").length
+);
+const expandSynonyms = s => {
+  let result = " " + normalize(s) + " ";
+  for (const [abbr, full] of sortedSynonyms) {
+    const re = new RegExp(`\\s${abbr}\\s`, "g");
+    result = result.replace(re, ` ${full} `);
+  }
+  return result.replace(/\s+/g, " ").trim();
+};
+
+const friendlyStopwords = new Set([
+  "kg", "g", "ml", "lt", "l", "un", "und", "unid",
+  "pt", "pct", "cx", "fr", "fardo",
+  "granel", "extra", "natural", "tradicional",
+  "200g", "500g", "400g", "300g", "1kg", "100g", "150g", "250g", "1l", "2l",
+  // Descritores comuns que não ajudam na lista
+  "aperitivo", "cong", "pet", "sleek", "al", "fr", "po",
+  "tir", "bra", "verm", "bom", "beef",
+  // Partículas (mantemos "de", "sem" porque são importantes em alguns nomes)
+  "do", "da", "dos", "das", "em", "para", "com", "ou", "no", "na",
+  "a", "o", "as", "os", "e", "n", "c", "p", "sol",
+]);
+// ─── BASE DE PALAVRAS GENÉRICAS ────────────────────────────────
+const productBases = {
+  // ─── Limpeza ───
+  "detergente":   { cat: "limpeza", desc: ["neutro","limao","limão","biodegradavel","biodegradável","gel"] },
+  "sabao":        { cat: "limpeza", desc: ["po","pó","liquido","líquido","barra","coco","glicerina","neutro"] },
+  "sabão":        { cat: "limpeza", desc: ["po","pó","liquido","líquido","barra","coco","glicerina","neutro"] },
+  "sabonete":     { cat: "higiene", desc: ["barra","liquido","líquido","antibacteriano","hidratante","glicerina"] },
+  "amaciante":    { cat: "limpeza", desc: ["concentrado"] },
+  "desinfetante": { cat: "limpeza", desc: [] },
+  "alvejante":    { cat: "limpeza", desc: ["sem","com","cloro"] },
+  "agua sanitaria": { cat: "limpeza", desc: [] },
+  "água sanitária": { cat: "limpeza", desc: [] },
+  "lustra":       { cat: "limpeza", desc: [] },
+  "limpa":        { cat: "limpeza", desc: ["vidro","piso","fogao","fogão"] },
+  "esponja":      { cat: "limpeza", desc: [] },
+  "papel":        { cat: "limpeza", desc: ["higienico","higiênico","toalha","aluminio","alumínio"] },
+  "guardanapo":   { cat: "limpeza", desc: [] },
+
+  // ─── Higiene pessoal ───
+  "shampoo":      { cat: "higiene", desc: [] },
+  "condicionador":{ cat: "higiene", desc: [] },
+  "creme dental": { cat: "higiene", desc: [] },
+  "pasta de dente":{ cat: "higiene", desc: [] },
+  "escova":       { cat: "higiene", desc: ["dental","cabelo"] },
+  "desodorante":  { cat: "higiene", desc: ["aerosol","aerossol","roll"] },
+  "fralda":       { cat: "higiene", desc: [] },
+  "absorvente":   { cat: "higiene", desc: [] },
+
+  // ─── Bebidas ───
+  "vinho":        { cat: "bebidas", desc: ["tinto","branco","rose","rosé","seco","suave","argentino","chileno","portugues","português","malbec","cabernet","merlot","sauvignon","carmenere","syrah","tannat","verde"] },
+  "cerveja":      { cat: "bebidas", desc: ["pilsen","ipa","lager","sem","com","alcool","álcool","zero","puro","malte"] },
+  "refrigerante": { cat: "bebidas", desc: ["zero","diet","light","cola","guarana","guaraná","limao","limão"] },
+  "suco":         { cat: "bebidas", desc: ["laranja","uva","abacaxi","manga","natural","integral","caju","maracuja","maracujá"] },
+  "agua":         { cat: "bebidas", desc: ["mineral","gas","gás","sem","com"] },
+  "água":         { cat: "bebidas", desc: ["mineral","gas","gás","sem","com"] },
+  "energetico":   { cat: "bebidas", desc: [] },
+  "energético":   { cat: "bebidas", desc: [] },
+  "vodka":        { cat: "bebidas", desc: [] },
+  "whisky":       { cat: "bebidas", desc: [] },
+  "cachaca":      { cat: "bebidas", desc: [] },
+  "cachaça":      { cat: "bebidas", desc: [] },
+
+  // ─── Laticínios ───
+  "leite":        { cat: "laticinios", desc: ["integral","desnatado","semi","semidesnatado","condensado","po","pó"] },
+  "iogurte":      { cat: "laticinios", desc: ["natural","integral","desnatado","grego","morango","frutas"] },
+  "queijo":       { cat: "laticinios", desc: ["mussarela","muçarela","muss","prato","minas","parmesao","parmesão","ralado","par","fresco","branco","coalho"] },
+  "manteiga":     { cat: "laticinios", desc: ["sem","com","sal"] },
+  "margarina":    { cat: "laticinios", desc: [] },
+  "requeijao":    { cat: "laticinios", desc: ["cremoso","light"] },
+  "requeijão":    { cat: "laticinios", desc: ["cremoso","light"] },
+  "creme":        { cat: "laticinios", desc: ["leite","ricota"] },
+  "ricota":       { cat: "laticinios", desc: [] },
+  "bebida lactea":{ cat: "laticinios", desc: ["zero","integral","morango","chocolate"] },
+  "bebida láctea":{ cat: "laticinios", desc: ["zero","integral","morango","chocolate"] },
+
+  // ─── Carnes / Frios ───
+  "frango":       { cat: "carnes", desc: ["peito","coxa","sobrecoxa","asa","file","filé","inteiro","passarinho"] },
+  "carne":        { cat: "carnes", desc: ["moida","moída","picanha","alcatra","patinho","contrafile","contrafilé"] },
+  "linguica":     { cat: "carnes", desc: ["calabresa","toscana","portuguesa"] },
+  "linguiça":     { cat: "carnes", desc: ["calabresa","toscana","portuguesa"] },
+  "presunto":     { cat: "carnes", desc: ["fatiado","cozido"] },
+  "mortadela":    { cat: "carnes", desc: [] },
+  "salsicha":     { cat: "carnes", desc: [] },
+  "bacon":        { cat: "carnes", desc: [] },
+  "peixe":        { cat: "carnes", desc: [] },
+  "tilapia":      { cat: "carnes", desc: ["filé","file"] },
+  "salmao":       { cat: "carnes", desc: [] },
+  "salmão":       { cat: "carnes", desc: [] },
+  "cha de dentro":{ cat: "carnes", desc: [] },
+  "chã de dentro":{ cat: "carnes", desc: [] },
+  "ovo":          { cat: "laticinios", desc: ["branco","vermelho","codorna"] },
+
+  // ─── Hortifruti (sempre genérico, fruta = nome da fruta) ───
+  "tomate":       { cat: "hortifruti", desc: ["italiano","cereja"] },
+  "cebola":       { cat: "hortifruti", desc: ["roxa","branca"] },
+  "alho":         { cat: "hortifruti", desc: [] },
+  "batata":       { cat: "hortifruti", desc: ["doce","inglesa","baroa","palha"] },
+  "cenoura":      { cat: "hortifruti", desc: [] },
+  "banana":       { cat: "hortifruti", desc: ["prata","nanica","pacovan"] },
+  "maca":         { cat: "hortifruti", desc: ["verde","vermelha","gala"] },
+  "maçã":         { cat: "hortifruti", desc: ["verde","vermelha","gala"] },
+  "laranja":      { cat: "hortifruti", desc: ["pera","lima"] },
+  "tangerina":    { cat: "hortifruti", desc: [] },
+  "limao":        { cat: "hortifruti", desc: ["taiti","siciliano"] },
+  "limão":        { cat: "hortifruti", desc: ["taiti","siciliano"] },
+  "uva":          { cat: "hortifruti", desc: ["sem","com","semente","verde","rosé","rose","italia","itália"] },
+  "abacate":      { cat: "hortifruti", desc: [] },
+  "mamao":        { cat: "hortifruti", desc: [] },
+  "mamão":        { cat: "hortifruti", desc: [] },
+  "manga":        { cat: "hortifruti", desc: ["palmer","tommy"] },
+  "abacaxi":      { cat: "hortifruti", desc: [] },
+  "melancia":     { cat: "hortifruti", desc: [] },
+  "melao":        { cat: "hortifruti", desc: [] },
+  "melão":        { cat: "hortifruti", desc: [] },
+  "morango":      { cat: "hortifruti", desc: [] },
+  "abacaxi":      { cat: "hortifruti", desc: [] },
+  "alface":       { cat: "hortifruti", desc: [] },
+  "couve":        { cat: "hortifruti", desc: ["flor"] },
+  "brocolis":     { cat: "hortifruti", desc: [] },
+  "brócolis":     { cat: "hortifruti", desc: [] },
+  "pimentao":     { cat: "hortifruti", desc: ["verde","vermelho","amarelo"] },
+  "pimentão":     { cat: "hortifruti", desc: ["verde","vermelho","amarelo"] },
+  "quiabo":       { cat: "hortifruti", desc: [] },
+  "abobrinha":    { cat: "hortifruti", desc: [] },
+  "salada":       { cat: "hortifruti", desc: ["verao","verão"] },
+  "agriao":       { cat: "hortifruti", desc: [] },
+  "agrião":       { cat: "hortifruti", desc: [] },
+  "salsinha":     { cat: "hortifruti", desc: [] },
+  "salsa":        { cat: "hortifruti", desc: [] },
+  "cebolinha":    { cat: "hortifruti", desc: [] },
+  "coentro":      { cat: "hortifruti", desc: [] },
+  "alecrim":      { cat: "hortifruti", desc: ["desidratado"] },
+
+  // ─── Padaria / Mercearia ───
+  "pao":          { cat: "padaria", desc: ["frances","francês","forma","integral"] },
+  "pão":          { cat: "padaria", desc: ["frances","francês","forma","integral"] },
+  "biscoito":     { cat: "mercearia", desc: ["maisena","cream","cracker","recheado","rosquinha","agua","água","sal"] },
+  "bolacha":      { cat: "mercearia", desc: [] },
+  "torrada":      { cat: "padaria", desc: [] },
+  "bolo":         { cat: "padaria", desc: [] },
+  "macarrao":     { cat: "mercearia", desc: ["instantaneo","instantâneo","espaguete","penne","parafuso"] },
+  "macarrão":     { cat: "mercearia", desc: ["instantaneo","instantâneo","espaguete","penne","parafuso"] },
+  "arroz":        { cat: "mercearia", desc: ["branco","integral","parboilizado"] },
+  "feijao":       { cat: "mercearia", desc: ["preto","carioca","fradinho"] },
+  "feijão":       { cat: "mercearia", desc: ["preto","carioca","fradinho"] },
+  "farinha":      { cat: "mercearia", desc: ["trigo","mandioca","milho","rosca"] },
+  "fuba":         { cat: "mercearia", desc: [] },
+  "fubá":         { cat: "mercearia", desc: [] },
+  "flocao":       { cat: "mercearia", desc: ["milho","arroz"] },
+  "flocão":       { cat: "mercearia", desc: ["milho","arroz"] },
+  "aveia":        { cat: "mercearia", desc: ["flocos","fino","grosso","grossa"] },
+  "azeite":       { cat: "mercearia", desc: ["oliva","extra","virgem"] },
+  "oleo":         { cat: "mercearia", desc: ["soja","girassol","milho","canola"] },
+  "óleo":         { cat: "mercearia", desc: ["soja","girassol","milho","canola"] },
+  "vinagre":      { cat: "mercearia", desc: ["alcool","álcool","maca","maçã","branco"] },
+  "sal":          { cat: "mercearia", desc: ["refinado","grosso","rosa"] },
+  "acucar":       { cat: "mercearia", desc: ["refinado","cristal","mascavo","demerara"] },
+  "açúcar":       { cat: "mercearia", desc: ["refinado","cristal","mascavo","demerara"] },
+  "cafe":         { cat: "mercearia", desc: ["po","pó","graos","grãos","capsula","cápsula"] },
+  "café":         { cat: "mercearia", desc: ["po","pó","graos","grãos","capsula","cápsula"] },
+  "cha":          { cat: "mercearia", desc: ["preto","verde","camomila","mate"] },
+  "chá":          { cat: "mercearia", desc: ["preto","verde","camomila","mate"] },
+  "achocolatado": { cat: "mercearia", desc: ["po","pó","liquido","líquido"] },
+  "chocolate":    { cat: "mercearia", desc: ["po","pó","ao","leite","amargo","branco"] },
+  "ketchup":      { cat: "mercearia", desc: [] },
+  "maionese":     { cat: "mercearia", desc: [] },
+  "mostarda":     { cat: "mercearia", desc: [] },
+  "molho":        { cat: "mercearia", desc: ["tomate","barbecue","soja"] },
+  "geleia":       { cat: "mercearia", desc: ["morango","damasco"] },
+  "tempero":      { cat: "mercearia", desc: ["cebola","alho","completo","verde"] },
+  "salsicha":     { cat: "mercearia", desc: [] },
+  "ervilha":      { cat: "mercearia", desc: [] },
+  "milho":        { cat: "mercearia", desc: ["verde"] },
+  "atum":         { cat: "mercearia", desc: ["ralado","posta"] },
+  "sardinha":     { cat: "mercearia", desc: [] },
+  "extrato":      { cat: "mercearia", desc: ["tomate"] },
+
+  // ─── Snacks / Doces ───
+  "goma de mascar":{ cat: "mercearia", desc: [] },
+  "bala":         { cat: "mercearia", desc: [] },
+  "pirulito":     { cat: "mercearia", desc: [] },
+  "barra":        { cat: "mercearia", desc: ["cereal","chocolate"] },
+  "chips":        { cat: "mercearia", desc: [] },
+  "batata palha": { cat: "mercearia", desc: [] },
+  "granola":      { cat: "mercearia", desc: [] },
+  "cereal":       { cat: "mercearia", desc: ["matinal"] },
+  "amendoim":     { cat: "mercearia", desc: ["torrado","salgado"] },
+  "castanha":     { cat: "mercearia", desc: ["caju","para","pará"] },
+};
+
+const brandsAndNoise = new Set([
+  "carrefour","crf","sadia","danone","president","ovomaltine","nestle","nestlé",
+  "betania","betânia","heineken","coca","cola","ferrero","nutella","mentos",
+  "vitarel","brilux","indaia","indaiá","brilhante","ype","ypê","minuano",
+  "pick","ni","par","ralad","muss","fat","tto","arg","chi","fm","cru","pq",
+  "min","ag","arg","chi",
+]);
+const canonicalNames = {
+  "agua": "Água",
+  "água": "Água",
+  "acucar": "Açúcar",
+  "açucar": "Açúcar",
+  "açúcar": "Açúcar",
+  "pao": "Pão",
+  "pão": "Pão",
+  "pao frances": "Pão Francês",
+  "pão francês": "Pão Francês",
+  "macarrao": "Macarrão",
+  "macarrão": "Macarrão",
+  "feijao": "Feijão",
+  "feijão": "Feijão",
+  "limao": "Limão",
+  "limão": "Limão",
+  "mamao": "Mamão",
+  "mamão": "Mamão",
+  "melao": "Melão",
+  "melão": "Melão",
+  "salmao": "Salmão",
+  "salmão": "Salmão",
+  "pimentao": "Pimentão",
+  "pimentão": "Pimentão",
+  "agriao": "Agrião",
+  "agrião": "Agrião",
+  "fuba": "Fubá",
+  "fubá": "Fubá",
+  "flocao": "Flocão",
+  "flocão": "Flocão",
+  "maca": "Maçã",
+  "maçã": "Maçã",
+  "cafe": "Café",
+  "café": "Café",
+  "cha": "Chá",
+  "chá": "Chá",
+  "oleo": "Óleo",
+  "óleo": "Óleo",
+  "agua sanitaria": "Água Sanitária",
+  "água sanitária": "Água Sanitária",
+  "ricota": "Ricota",
+  "linguica": "Linguiça",
+  "linguiça": "Linguiça",
+  "requeijao": "Requeijão",
+  "requeijão": "Requeijão",
+  "cha de dentro": "Chã de Dentro",
+  "chã de dentro": "Chã de Dentro",
+  "alcool": "Álcool",
+  "álcool": "Álcool",
+  "bebida lactea": "Bebida Láctea",
+  "bebida láctea": "Bebida Láctea",
+  "frances": "Francês",
+  "francês": "Francês",
+  "energetico": "Energético",
+  "energético": "Energético",
+  "cachaca": "Cachaça",
+  "cachaça": "Cachaça",
+  "brocolis": "Brócolis",
+  "brócolis": "Brócolis",
+  "padrao": "Padrão",
+  "padrão": "Padrão",
+  "muçarela": "Muçarela",
+  "mussarela": "Mussarela",
+  "parmesao": "Parmesão",
+  "parmesão": "Parmesão",
+  "instantaneo": "Instantâneo",
+  "instantâneo": "Instantâneo",
+  "verao": "Verão",
+  "verão": "Verão",
+  "biodegradavel": "Biodegradável",
+  "biodegradável": "Biodegradável",
+  "higienico": "Higiênico",
+  "higiênico": "Higiênico",
+  "aluminio": "Alumínio",
+  "alumínio": "Alumínio",
+  "portugues": "Português",
+  "português": "Português",
+  "italia": "Itália",
+  "itália": "Itália",
+  "rose": "Rosé",
+  "rosé": "Rosé",
+  "fogao": "Fogão",
+  "fogão": "Fogão",
+  "po": "Pó",
+  "pó": "Pó",
+  "graos": "Grãos",
+  "grãos": "Grãos",
+  "capsula": "Cápsula",
+  "cápsula": "Cápsula",
+  "maracuja": "Maracujá",
+  "maracujá": "Maracujá",
+  "guarana": "Guaraná",
+  "guaraná": "Guaraná",
+  "liquido": "Líquido",
+  "líquido": "Líquido",
+  "moida": "Moída",
+  "moída": "Moída",
+  "contrafile": "Contrafilé",
+  "contrafilé": "Contrafilé",
+  "file": "Filé",
+  "filé": "Filé",
+  "gas": "Gás",
+  "gás": "Gás",
+};
+// Capitaliza usando mapa canônico (mantém acentos)
+const capitalizeCanonical = (word) => {
+  if (!word) return word;
+  const norm = word.toLowerCase();
+  if (canonicalNames[norm]) return canonicalNames[norm];
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+};
+
+// Gera nome amigável GENÉRICO a partir de um nome cru de NF
+// Estratégia: encontra a palavra-base (ex: "detergente") e opcionalmente
+// adiciona 1 descritor relevante (ex: "neutro"). Ignora marca.
+const makeFriendlyName = (rawName) => {
+  if (!rawName) return "";
+
+  // 1. Aplica sinônimos
+  const expanded = expandSynonyms(rawName);
+  const normalized = normalize(expanded);
+
+  // 2. Busca primeiro a palavra-base mais longa (ex: "bebida lactea" antes de "bebida")
+  const baseKeys = Object.keys(productBases).sort((a, b) => b.length - a.length);
+  let foundBase = null;
+  let baseInfo = null;
+  for (const base of baseKeys) {
+    // Verifica se a base aparece como palavra inteira (não dentro de outra)
+    const pattern = new RegExp(`(^|\\s)${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`, "i");
+    if (pattern.test(normalized)) {
+      foundBase = base;
+      baseInfo = productBases[base];
+      break;
+    }
+  }
+
+  // 3. Se encontrou base → monta nome com base + 1 descritor opcional
+  if (foundBase && baseInfo) {
+    const tokens = normalized.split(" ").filter(Boolean);
+    // Procura primeiro descritor relevante que apareça (e não seja a própria base)
+    const validDescs = baseInfo.desc || [];
+    let foundDesc = null;
+    for (const t of tokens) {
+      if (foundBase.includes(t)) continue;  // já é parte da base
+      if (validDescs.some(d => d.toLowerCase() === t.toLowerCase())) {
+        foundDesc = t;
+        break;
+      }
+    }
+
+    // Usa nome canônico (com acentos) se existir
+    const baseDisplay = foundBase.split(" ").map(capitalizeCanonical).join(" ");
+    if (foundDesc) {
+      const descDisplay = capitalizeCanonical(foundDesc);
+      return `${baseDisplay} ${descDisplay}`;
+    }
+    return baseDisplay;
+  }
+
+  // 4. FALLBACK: se não encontrou nenhuma palavra-base, usa o algoritmo antigo
+  // (remove códigos, partículas, marcas, capitaliza)
+  const words = normalized.split(" ").filter(w => {
+    if (!w || w.length < 2) return false;
+    if (friendlyStopwords.has(w.toLowerCase())) return false;
+    if (brandsAndNoise.has(w.toLowerCase())) return false;
+    if (/^\w{0,4}\d+\w*$/.test(w)) return false;
+    if (w.length === 1) return false;
+    return true;
+  });
+  const particles = new Set(["de", "do", "da", "dos", "das", "sem", "com", "para", "em"]);
+  let significantCount = 0;
+  const result = [];
+  for (const w of words) {
+    const isParticle = particles.has(w.toLowerCase());
+    if (!isParticle) {
+      if (significantCount >= 2) break;  // só 2 palavras quando cai no fallback
+      significantCount++;
+    }
+    result.push(isParticle
+      ? w.toLowerCase()
+      : capitalizeCanonical(w)
+    );
+  }
+  while (result.length > 0 && particles.has(result[0].toLowerCase())) result.shift();
+  while (result.length > 0 && particles.has(result[result.length - 1].toLowerCase())) result.pop();
+  return result.join(" ") || rawName;  // último fallback: nome cru
+};
+
+const guessCategoryFromFriendly = (friendlyName) => {
+  if (!friendlyName) return null;
+  const norm = normalize(friendlyName);
+  const baseKeys = Object.keys(productBases).sort((a, b) => b.length - a.length);
+  for (const base of baseKeys) {
+    const pattern = new RegExp(`(^|\\s)${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`, "i");
+    if (pattern.test(norm)) return productBases[base].cat;
+  }
+  return null;
+};
+
+
+// ═════════════════════════════════════════════════════════════════════
+// PARSER DE TEXTO IMPORTADO (Apple Notes, Google Keep, WhatsApp, etc)
+// Cada linha = 1 item potencial.
+// Detecta: bullets, números, quantidades, unidades, estado (marcado/desmarcado)
+// Usa makeFriendlyName global para normalização (mesma lógica da NF)
+// ═════════════════════════════════════════════════════════════════════
 
 // Detecta unidade no texto e retorna { qty, unit, rest }
 // Ex: "2 kg arroz" → { qty: "2", unit: "kg", rest: "arroz" }
 // Ex: "5 bananas" → { qty: "5", unit: "un", rest: "bananas" }
 function extractQtyAndUnit(text) {
   if (!text) return { qty: "1", unit: "un", rest: "" };
-  let working = text.trim();
-  let qty = "1";
-  let unit = "un";
-
-  // Padrão 1: "2 kg arroz" ou "0,5 kg arroz" ou "1,5 litros leite"
-  // Captura número (com vírgula/ponto opcional) + unidade + resto
+  const working = text.trim();
+  // Padrões com unidade explícita
   const unitPatterns = [
     { regex: /^(\d+(?:[.,]\d+)?)\s*(kg|kilo|kilos)\b\s*(.*)/i, unit: "kg" },
     { regex: /^(\d+(?:[.,]\d+)?)\s*(g|gr|gramas?)\b\s*(.*)/i, unit: "g" },
@@ -124,39 +681,23 @@ function extractQtyAndUnit(text) {
   ];
   for (const p of unitPatterns) {
     const m = working.match(p.regex);
-    if (m) {
-      qty = m[1].replace(",", ".");
-      unit = p.unit;
-      return { qty, unit, rest: m[3].trim() };
-    }
+    if (m) return { qty: m[1].replace(",", "."), unit: p.unit, rest: m[3].trim() };
   }
-
-  // Padrão 2: "5 bananas" / "2 ovos" (número sem unidade explícita = un)
+  // Padrão: "5 bananas" (número solto = un)
   const numFirst = working.match(/^(\d+(?:[.,]\d+)?)\s+(.+)/);
-  if (numFirst) {
-    qty = numFirst[1].replace(",", ".");
-    return { qty, unit: "un", rest: numFirst[2].trim() };
-  }
-
-  // Padrão 3: "banana x2" / "leite x 3"
+  if (numFirst) return { qty: numFirst[1].replace(",", "."), unit: "un", rest: numFirst[2].trim() };
+  // Padrão: "banana x2" / "leite x 3"
   const xPattern = working.match(/^(.+?)\s*[xX×]\s*(\d+)\s*$/);
-  if (xPattern) {
-    return { qty: xPattern[2], unit: "un", rest: xPattern[1].trim() };
-  }
-
-  // Sem quantidade detectada
+  if (xPattern) return { qty: xPattern[2], unit: "un", rest: xPattern[1].trim() };
   return { qty: "1", unit: "un", rest: working };
 }
 
 // Detecta se uma linha está marcada como concluida no texto original
-// Ex: "✓ leite", "[x] pão", "- [x] arroz"
 function detectChecked(line) {
   if (!line) return { checked: false, rest: line };
-  // Padrões de "marcado": ✓ ✔ ☑ [x] [X] [✓]
   const checkedPattern = /^[\s\-•*►→]*(✓|✔|☑|\[\s*[xX✓]\s*\])\s*(.*)/;
   const m = line.match(checkedPattern);
   if (m) return { checked: true, rest: m[2].trim() };
-  // Padrões de "desmarcado": [ ] [_] □ ☐
   const uncheckedPattern = /^[\s\-•*►→]*(□|☐|\[\s*\])\s*(.*)/;
   const m2 = line.match(uncheckedPattern);
   if (m2) return { checked: false, rest: m2[2].trim() };
@@ -166,29 +707,19 @@ function detectChecked(line) {
 // Remove bullets, números de lista, e caracteres decorativos do início
 function stripBullets(line) {
   if (!line) return "";
-  let result = line
-    // Remove bullets: • - * ► → ◦ · ‣ + emojis decorativos
-    .replace(/^[\s•\-*►→◦·‣]+/, "");
-  // Remove numeração de lista: "1." ou "1)" ou "1 -" ou "1:"
-  // IMPORTANTE: só matcheia se o número for SEGUIDO por separador,
-  // não confundir com quantidade tipo "1.5kg" ou "2 bananas"
-  // Padrão: dígitos + separador (.)|()  + espaço/tab
-  result = result.replace(/^(\d+)([.)\-:])\s+/, (match, num, sep) => {
-    // Se for "1." ou "1)" seguido de espaço → numeração (remover)
-    // Se for "1.5" sem espaço → quantidade (manter)
-    return "";
-  });
+  let result = line.replace(/^[\s•\-*►→◦·‣]+/, "");
+  result = result.replace(/^(\d+)([.)\-:])\s+/, "");
   return result.trim();
 }
 
 // Remove conectores que sobram após extrair quantidade
-// Ex: "1kg de carne" → após extrair "1kg", sobra "de carne". Remove "de" do início.
 function stripLeadingConnectors(text) {
   if (!text) return "";
   return text.replace(/^(de|do|da|dos|das)\s+/i, "").trim();
 }
 
 // Parser principal: recebe texto e retorna array de itens detectados
+// Aplica makeFriendlyName e guessCategoryFromFriendly globais
 function parseImportedList(text) {
   if (!text || typeof text !== "string") return [];
   const lines = text.split(/\r?\n/);
@@ -204,11 +735,11 @@ function parseImportedList(text) {
     let cleaned = stripBullets(afterCheck);
     if (!cleaned) continue;
 
-    // 3. Remove emojis decorativos no início (📝, 🛒, etc)
+    // 3. Remove emojis decorativos no início
     cleaned = cleaned.replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]+\s*/u, "").trim();
     if (!cleaned) continue;
 
-    // 4. Linhas com 1 caractere só ou só números (ex: "1", "2") são ignoradas
+    // 4. Linhas com 1 caractere só ou só números são ignoradas
     if (cleaned.length < 2 || /^\d+$/.test(cleaned)) continue;
 
     // 5. Linhas que parecem títulos/seções (terminam em ":") são puladas
@@ -218,30 +749,36 @@ function parseImportedList(text) {
     const { qty, unit, rest } = extractQtyAndUnit(cleaned);
 
     // 7. Remove conectores ("de", "do", "da") que sobraram
-    const finalRest = stripLeadingConnectors(rest);
+    let afterConnector = stripLeadingConnectors(rest);
 
-    // 8. Se ficou vazio ou muito curto, pula
-    if (!finalRest || finalRest.length < 2) continue;
+    // 8. Remove embalagens ("pote de", "pacote", "caixa de", etc)
+    afterConnector = stripPackagingPrefix(afterConnector);
 
-    // 9. Aplica nome amigável
-    const friendlyName = capitalizeWords(finalRest);
+    // 9. Remove conectores novamente (caso "pacote de" tenha deixado conector)
+    afterConnector = stripLeadingConnectors(afterConnector);
 
-    // 10. Categoriza
-    const category = guessCategory(finalRest);
+    // 10. Se ficou vazio ou muito curto, pula
+    if (!afterConnector || afterConnector.length < 2) continue;
+
+    // 11. Aplica makeFriendlyName GLOBAL (mesma lógica da NF)
+    // Resultado: "manteiga" → "Manteiga", "cafe" → "Café", "pedaço de charque" → "Charque"
+    const friendlyName = makeFriendlyName(afterConnector) || afterConnector;
+
+    // 12. Categoria pela base ou fallback
+    const category = guessCategoryFromFriendly(friendlyName) || guessCategory(afterConnector);
 
     items.push({
       name: friendlyName,
       qty,
       unit,
       category,
-      done: checked,  // preserva estado original
+      done: checked,
       _originalLine: line.trim(),
     });
   }
 
   return items;
 }
-
 
 const LIST_ICONS = ["🛒","🏗️","🏠","🎁","🐾","💊","📚","🌿","🧺","⚽"];
 const STORES = [
@@ -860,9 +1397,30 @@ function AuthScreen({ pendingInviteToken }) {
 // MODAL SHELL
 // ═════════════════════════════════════════════════════════════════════
 function Modal({ onClose, title, children, footer }) {
+  // Fix para teclado iOS: ajusta altura disponível quando teclado abre
+  // (sem isso, footer fica atrás do teclado no Safari iOS)
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return;
+    const handleResize = () => {
+      // Diferença entre altura da janela e do viewport visível = altura do teclado
+      const offset = window.innerHeight - window.visualViewport.height;
+      setKeyboardOffset(offset > 50 ? offset : 0);  // só ajusta se for "grande" (teclado)
+    };
+    window.visualViewport.addEventListener("resize", handleResize);
+    window.visualViewport.addEventListener("scroll", handleResize);
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", handleResize);
+        window.visualViewport.removeEventListener("scroll", handleResize);
+      }
+    };
+  }, []);
+
   return (
     <div style={{ position:"fixed",top:0,bottom:0,left:0,right:0,background:"rgba(15,18,24,0.65)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",backdropFilter:"blur(4px)",padding:"0 12px" }} onClick={onClose}>
-      <div style={{ background:C.sand,borderRadius:18,marginTop:"max(24px, env(safe-area-inset-top))",marginBottom:"max(24px, env(safe-area-inset-bottom))",width:"100%",maxWidth:460,maxHeight:"calc(100% - 48px)",display:"flex",flexDirection:"column",animation:"slideDown 0.25s ease",boxShadow:"0 10px 40px rgba(0,0,0,0.25)",overflow:"hidden" }} onClick={e=>e.stopPropagation()}>
+      <div style={{ background:C.sand,borderRadius:18,marginTop:"max(24px, env(safe-area-inset-top))",marginBottom:`max(24px, ${keyboardOffset}px, env(safe-area-inset-bottom))`,width:"100%",maxWidth:460,maxHeight:`calc(100% - 48px - ${keyboardOffset}px)`,display:"flex",flexDirection:"column",animation:"slideDown 0.25s ease",boxShadow:"0 10px 40px rgba(0,0,0,0.25)",overflow:"hidden",transition:"max-height 0.2s ease, margin-bottom 0.2s ease" }} onClick={e=>e.stopPropagation()}>
         <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"18px 20px 14px",borderBottom:`1px solid ${C.linen}`,flexShrink:0 }}>
           <h3 style={{ color:C.graphite,fontSize:19,fontFamily:"'Fraunces',serif",fontWeight:500,letterSpacing:"-0.3px" }}>{title}</h3>
           <button onClick={onClose} style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:20,cursor:"pointer",padding:4 }}>✕</button>
@@ -1936,7 +2494,7 @@ function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete, canEdit, 
 // ═════════════════════════════════════════════════════════════════════
 // ADD ITEM MODAL
 // ═════════════════════════════════════════════════════════════════════
-function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem }) {
+function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem, onUpdateRawItem }) {
   const [name, setName] = useState("");
   const [qty, setQty] = useState("1");
   const [unit, setUnit] = useState("un");
@@ -1957,9 +2515,32 @@ function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem }) {
   const handleParse = () => {
     if (!importText.trim()) return;
     const parsed = parseImportedList(importText);
-    // Inicializa todos com _selected: true (usuário pode desmarcar individualmente)
-    const withSelected = parsed.map(p => ({ ...p, _selected: true }));
-    setImportPreview(withSelected);
+
+    // Detecta duplicatas com itens existentes na lista
+    // Para cada item parsed, busca match (nome normalizado + unidade igual)
+    // Se achar, adiciona _duplicateOf com referência ao item da lista
+    const normalizeForCompare = (s) =>
+      (s || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+
+    const enriched = parsed.map(p => {
+      const normName = normalizeForCompare(p.name);
+      const existing = (existingItems || []).find(it =>
+        !it.done &&
+        normalizeForCompare(it.name) === normName &&
+        (it.unit || "un") === p.unit
+      );
+      return {
+        ...p,
+        _selected: true,
+        _duplicateOf: existing || null,  // referência ao item já na lista (ou null)
+      };
+    });
+
+    setImportPreview(enriched);
     setImportStep("preview");
   };
 
@@ -1981,24 +2562,45 @@ function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem }) {
     ));
   };
 
+  // Soma quantidades, mantendo formato (inteiro vs decimal)
+  const sumQty = (q1, q2) => {
+    const n1 = parseFloat(String(q1).replace(",", ".")) || 0;
+    const n2 = parseFloat(String(q2).replace(",", ".")) || 0;
+    const total = n1 + n2;
+    if (Number.isInteger(n1) && Number.isInteger(n2)) return String(total);
+    return total.toFixed(3).replace(/\.?0+$/, "");
+  };
+
   const handleConfirmImport = async () => {
     const toImport = importPreview.filter(it => it._selected && it.name.trim());
     if (toImport.length === 0) return;
-    // Adiciona cada item (incluindo done=true se o usuário marcou)
+
     for (const it of toImport) {
-      await onAdd({
-        name: it.name.trim(),
-        qty: it.qty,
-        unit: it.unit,
-        category: it.category,
-        note: "",
-        done: it.done,
-      });
+      if (it._duplicateOf) {
+        // É duplicata → soma quantidade no item existente
+        // Usa onUpdateRawItem (não fecha modal) em vez de onIncrementItem
+        const newQty = sumQty(it._duplicateOf.qty, it.qty);
+        if (onUpdateRawItem) {
+          await onUpdateRawItem(it._duplicateOf.id, { qty: newQty });
+        }
+      } else {
+        // É item novo → adiciona normalmente
+        await onAdd({
+          name: it.name.trim(),
+          qty: it.qty,
+          unit: it.unit,
+          category: it.category,
+          note: "",
+          done: it.done,
+        });
+      }
     }
     onClose();
   };
 
   const selectedCount = importPreview.filter(it => it._selected).length;
+  const duplicateCount = importPreview.filter(it => it._selected && it._duplicateOf).length;
+  const newCount = selectedCount - duplicateCount;
 
   const effectiveCategory = category || (name.trim() ? guessCategory(name.trim()) : "outros");
   const catObj = CATEGORIES.find(c => c.id === effectiveCategory) || CATEGORIES[9];
@@ -2194,19 +2796,43 @@ function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem }) {
               </div>
             ) : (
               <>
-                <p style={{ color:C.inkSoft, fontSize:13, marginBottom:12, fontFamily:"'DM Sans',sans-serif" }}>
+                <p style={{ color:C.inkSoft, fontSize:13, marginBottom: duplicateCount > 0 ? 8 : 12, fontFamily:"'DM Sans',sans-serif" }}>
                   Encontrei <strong>{importPreview.length}</strong> {importPreview.length === 1 ? "item" : "itens"}.
                   Desmarque o que não quiser importar.
                 </p>
+
+                {/* Aviso de duplicatas */}
+                {duplicateCount > 0 && (
+                  <div style={{
+                    background:"#FFF4E0",
+                    border:"1px solid #F0CC8E",
+                    borderRadius:9,
+                    padding:"9px 11px",
+                    marginBottom:12,
+                    display:"flex",
+                    alignItems:"flex-start",
+                    gap:8,
+                    fontFamily:"'DM Sans',sans-serif"
+                  }}>
+                    <span style={{ fontSize:14, flexShrink:0, marginTop:1 }}>⚠️</span>
+                    <p style={{ color:"#7A5400", fontSize:12, lineHeight:1.45 }}>
+                      <strong>{duplicateCount}</strong> {duplicateCount === 1 ? "item já está" : "itens já estão"} na lista. As quantidades serão somadas automaticamente.
+                    </p>
+                  </div>
+                )}
+
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                  {importPreview.map((it, idx) => (
+                  {importPreview.map((it, idx) => {
+                    const isDup = !!it._duplicateOf;
+                    const summedQty = isDup ? sumQty(it._duplicateOf.qty, it.qty) : null;
+                    return (
                     <div
                       key={idx}
                       style={{
                         display:"flex", alignItems:"center", gap:10,
                         padding:"9px 11px",
-                        background: it._selected ? "#FAF8F4" : C.linenDim,
-                        border:`1px solid ${C.linenDim}`,
+                        background: !it._selected ? C.linenDim : (isDup ? "#FFFAEF" : "#FAF8F4"),
+                        border: isDup && it._selected ? "1px solid #F0CC8E" : `1px solid ${C.linenDim}`,
                         borderRadius:9,
                         opacity: it._selected ? 1 : 0.5,
                         fontFamily:"'DM Sans',sans-serif"
@@ -2225,21 +2851,31 @@ function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem }) {
                       >
                         {it._selected && <span style={{ color:C.graphite, fontSize:13, fontWeight:700 }}>✓</span>}
                       </button>
-                      {/* Nome (editável inline) */}
-                      <input
-                        type="text"
-                        value={it.name}
-                        onChange={(e)=>updatePreviewName(idx, e.target.value)}
-                        style={{
-                          flex:1, minWidth:0, padding:"4px 6px",
-                          background:"transparent", border:"none",
-                          color:C.graphite, fontSize:14,
-                          textDecoration: it.done ? "line-through" : "none",
-                          opacity: it.done ? 0.6 : 1,
-                          outline:"none",
-                          fontFamily:"'DM Sans',sans-serif"
-                        }}
-                      />
+                      {/* Nome (editável inline) + badge de duplicata embaixo */}
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <input
+                          type="text"
+                          value={it.name}
+                          onChange={(e)=>updatePreviewName(idx, e.target.value)}
+                          style={{
+                            width:"100%", padding:"4px 6px",
+                            background:"transparent", border:"none",
+                            color:C.graphite, fontSize:14,
+                            textDecoration: it.done ? "line-through" : "none",
+                            opacity: it.done ? 0.6 : 1,
+                            outline:"none",
+                            fontFamily:"'DM Sans',sans-serif"
+                          }}
+                        />
+                        {isDup && it._selected && (
+                          <p style={{
+                            color:"#7A5400", fontSize:10.5, marginLeft:6, marginTop:1,
+                            fontFamily:"'DM Sans',sans-serif"
+                          }}>
+                            já tem {it._duplicateOf.qty} {it._duplicateOf.unit} → vai virar {summedQty} {it._duplicateOf.unit}
+                          </p>
+                        )}
+                      </div>
                       {/* Qtd + Unidade */}
                       <span style={{ color:C.stoneSoft, fontSize:12, whiteSpace:"nowrap", flexShrink:0 }}>
                         {it.qty} {it.unit}
@@ -2256,7 +2892,8 @@ function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem }) {
                         {it.done ? "☑️" : "⬜"}
                       </button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             )}
@@ -2595,6 +3232,12 @@ function ScreenListDetail({ list, items, members, currentUserId, onBack, enabled
               await onUpdateItem(existingItem.id, { qty: newQtyStr });
             }
             setShowAdd(false);
+          }}
+          onUpdateRawItem={async (itemId, updates) => {
+            // Versão "raw" usada na importação em lote: não fecha modal
+            if (onUpdateItem) {
+              await onUpdateItem(itemId, updates);
+            }
           }}
         />
       )}
@@ -3856,566 +4499,7 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
     //     com prioridade pro par de maior score
     //  5. Mantém o nome da NF como "nome técnico" mas exibe o nome da lista
 
-    // Dicionário de sinônimos: termos da NF → termos do dia a dia
-    // ORDEM IMPORTA: termos com 2 palavras (ex "beb lac") devem vir antes de palavras simples
-    const synonymsDict = {
-      // ─── Termos compostos (devem vir PRIMEIRO) ───
-      "beb lac": "bebida láctea",         // "Beb Lac Zer" → "Bebida Láctea Zero"
-      "sab barra": "sabonete barra",      // "Sab Barra Antibac" → "Sabonete Barra Antibac"
-      "goma masc": "goma de mascar",      // "Goma Masc Mentos" → "Goma de Mascar Mentos"
-      "ovo verm": "ovo", "ovo bra": "ovo",
-      "vermelho c": "",
-      "pao f orig": "pão francês",
-      "minas p": "minas padrão",
-      "minas padrao": "minas padrão",
-
-      // ─── Categorias e tipos de produto ───
-      "fgo": "frango", "fg": "frango",
-      "iog": "iogurte",
-      "cerv": "cerveja",
-      "refrig": "refrigerante",
-      "achoc": "achocolatado", "ach": "achocolatado",
-      "choc": "chocolate",
-      "qa": "", "qj": "queijo",
-      "ling": "linguiça",
-      "mant": "manteiga",
-      "filezinho": "filé",
-      "file": "filé",
-      "pao": "pão",
-      "beb": "bebida",
-      "sab": "sabonete",
-      "ricot": "ricota",
-      "tilapia": "tilapia",
-      "macarrao": "macarrão",
-      "maca": "maçã",            // "Maca Turma Monica" → "Maçã"
-      "temp": "tempero",         // "Temp Cebola Alho" → "Tempero Cebola Alho"
-      "lrnj": "laranja", "lrj": "laranja",
-      "flocao": "flocão",        // "Flocao Novo Milho" → "Flocão Novo Milho"
-      "aveia": "aveia",
-      "pimentao": "pimentão",    // "Pimentao Vermelho" → "Pimentão Vermelho"
-      "limao": "limão",
-      "feijao": "feijão",
-      "leitao": "leitão",
-      "agriao": "agrião",
-
-      // ─── Descritores ───
-      "antibac": "antibacteriano",  // "Sab Barra Antibac"
-      "se": "sem",                  // "Uva Se Crf" → "Uva Sem Crf"
-      "zer": "zero",                // "Beb Lac Zer" → "Bebida Láctea Zero"
-      "lac": "",                    // (já incorporado em "beb lac")
-      "nat": "natural",
-      "trad": "tradicional",
-      "int": "integral",
-      "fino": "fino",
-      "novo": "novo",
-      "padrao": "padrão",
-      "alcool": "álcool",
-      "verde": "verde",
-      "amarelo": "amarelo",
-
-      // ─── Marcas (mantém capitalizado) ───
-      "sad": "Sadia",
-      "dan": "Danone",
-      "presid": "President",
-      "ovomaltine": "Ovomaltine",
-      "nestle": "Nestlé",
-      "betania": "Betânia",
-      "crf": "Carrefour",
-      "ferrero": "Ferrero",
-      "nutella": "Nutella",
-      "mentos": "Mentos",
-      "heineken": "Heineken",
-      "coca": "Coca",
-      "cola": "Cola",
-      "natura": "Natura",
-      "tsonia": "",      // marca pouco conhecida que polui
-
-      // ─── Stopwords (palavras vazias) ───
-      "manjar": "",
-      "minhoto": "",
-      "granel": "",
-      "extra": "",
-      "aperitivo": "",
-      "cong": "",
-      "pet": "",
-      "sleek": "",
-      "al": "",
-      "fr": "",
-      "millano": "",
-      "incol": "",
-      "bom": "",
-      "beef": "",
-      "bra": "",
-      "verm": "",
-      "tir": "",
-      "n": "",
-      "sol": "",
-      "em": "",
-      "de": "",
-      "do": "",
-      "da": "",
-      "para": "",
-      "com": "",
-      "sem": "",
-      "c": "",
-      "p": "",
-      "po": "pó",
-      "kg": "", "g": "", "ml": "", "lt": "", "un": "",
-    };
-
-    // Remove acentos (Á → A, ç → c)
-    const removeAccents = s => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-
-    // Normaliza: lower, sem acentos, sem caracteres não alfabéticos
-    const normalize = s =>
-      removeAccents(s || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-    // Aplica sinônimos: substitui termos abreviados da NF pelos amigáveis
-    // Ordena por número de palavras (descendente) para garantir que "beb lac"
-    // seja aplicado antes de "beb" (evita match parcial errado)
-    const sortedSynonyms = Object.entries(synonymsDict).sort(
-      (a, b) => b[0].split(" ").length - a[0].split(" ").length
-    );
-    const expandSynonyms = s => {
-      let result = " " + normalize(s) + " ";
-      for (const [abbr, full] of sortedSynonyms) {
-        const re = new RegExp(`\\s${abbr}\\s`, "g");
-        result = result.replace(re, ` ${full} `);
-      }
-      return result.replace(/\s+/g, " ").trim();
-    };
-
-    // Tokeniza em palavras significativas (mais de 2 letras, sem ruído numérico)
-    const tokenize = s =>
-      expandSynonyms(s)
-        .split(" ")
-        .filter(t => t.length > 2 && !/^\d+$/.test(t));
-
-    // Calcula similaridade entre duas listas de tokens (Jaccard simplificado + bonus)
-    const scoreMatch = (listTokens, nfTokens) => {
-      if (listTokens.length === 0 || nfTokens.length === 0) return 0;
-      const listSet = new Set(listTokens);
-      const nfSet = new Set(nfTokens);
-      let common = 0;
-      for (const t of listSet) {
-        if (nfSet.has(t)) common += 1;
-        else {
-          // Match parcial: token da lista está contido em algum da NF
-          for (const nt of nfTokens) {
-            if (nt.startsWith(t) || t.startsWith(nt)) { common += 0.5; break; }
-          }
-        }
-      }
-      // Score: razão entre tokens comuns e tamanho da lista (priorizando matches da lista inteira)
-      const score = common / listTokens.length;
-      // Bonus se TODOS os tokens da lista estão na NF
-      const allMatched = listTokens.every(t => nfSet.has(t) || nfTokens.some(nt => nt.startsWith(t) || t.startsWith(nt)));
-      return allMatched ? score + 1 : score;
-    };
-
-    // Função para gerar um nome amigável a partir de um nome cru de NF
-    // Aplica sinônimos, remove termos genéricos e capitaliza
-    const friendlyStopwords = new Set([
-      "kg", "g", "ml", "lt", "l", "un", "und", "unid",
-      "pt", "pct", "cx", "fr", "fardo",
-      "granel", "extra", "natural", "tradicional",
-      "200g", "500g", "400g", "300g", "1kg", "100g", "150g", "250g", "1l", "2l",
-      // Descritores comuns que não ajudam na lista
-      "aperitivo", "cong", "pet", "sleek", "al", "fr", "po",
-      "tir", "bra", "verm", "bom", "beef",
-      // Partículas (mantemos "de", "sem" porque são importantes em alguns nomes)
-      "do", "da", "dos", "das", "em", "para", "com", "ou", "no", "na",
-      "a", "o", "as", "os", "e", "n", "c", "p", "sol",
-    ]);
-    // ─── BASE DE PALAVRAS GENÉRICAS ────────────────────────────────
-    // Estrutura: termo-base → { categoria, descritores válidos }
-    // O nome amigável final = base + (descritor opcional)
-    // Descritores são adjetivos/tipos que ajudam diferenciar produtos similares
-    // mas pra LISTA o usuário não precisa saber a marca.
-    const productBases = {
-      // ─── Limpeza ───
-      "detergente":   { cat: "limpeza", desc: ["neutro","limao","limão","biodegradavel","biodegradável","gel"] },
-      "sabao":        { cat: "limpeza", desc: ["po","pó","liquido","líquido","barra","coco","glicerina","neutro"] },
-      "sabão":        { cat: "limpeza", desc: ["po","pó","liquido","líquido","barra","coco","glicerina","neutro"] },
-      "sabonete":     { cat: "higiene", desc: ["barra","liquido","líquido","antibacteriano","hidratante","glicerina"] },
-      "amaciante":    { cat: "limpeza", desc: ["concentrado"] },
-      "desinfetante": { cat: "limpeza", desc: [] },
-      "alvejante":    { cat: "limpeza", desc: ["sem","com","cloro"] },
-      "agua sanitaria": { cat: "limpeza", desc: [] },
-      "água sanitária": { cat: "limpeza", desc: [] },
-      "lustra":       { cat: "limpeza", desc: [] },
-      "limpa":        { cat: "limpeza", desc: ["vidro","piso","fogao","fogão"] },
-      "esponja":      { cat: "limpeza", desc: [] },
-      "papel":        { cat: "limpeza", desc: ["higienico","higiênico","toalha","aluminio","alumínio"] },
-      "guardanapo":   { cat: "limpeza", desc: [] },
-
-      // ─── Higiene pessoal ───
-      "shampoo":      { cat: "higiene", desc: [] },
-      "condicionador":{ cat: "higiene", desc: [] },
-      "creme dental": { cat: "higiene", desc: [] },
-      "pasta de dente":{ cat: "higiene", desc: [] },
-      "escova":       { cat: "higiene", desc: ["dental","cabelo"] },
-      "desodorante":  { cat: "higiene", desc: ["aerosol","aerossol","roll"] },
-      "fralda":       { cat: "higiene", desc: [] },
-      "absorvente":   { cat: "higiene", desc: [] },
-
-      // ─── Bebidas ───
-      "vinho":        { cat: "bebidas", desc: ["tinto","branco","rose","rosé","seco","suave","argentino","chileno","portugues","português","malbec","cabernet","merlot","sauvignon","carmenere","syrah","tannat","verde"] },
-      "cerveja":      { cat: "bebidas", desc: ["pilsen","ipa","lager","sem","com","alcool","álcool","zero","puro","malte"] },
-      "refrigerante": { cat: "bebidas", desc: ["zero","diet","light","cola","guarana","guaraná","limao","limão"] },
-      "suco":         { cat: "bebidas", desc: ["laranja","uva","abacaxi","manga","natural","integral","caju","maracuja","maracujá"] },
-      "agua":         { cat: "bebidas", desc: ["mineral","gas","gás","sem","com"] },
-      "água":         { cat: "bebidas", desc: ["mineral","gas","gás","sem","com"] },
-      "energetico":   { cat: "bebidas", desc: [] },
-      "energético":   { cat: "bebidas", desc: [] },
-      "vodka":        { cat: "bebidas", desc: [] },
-      "whisky":       { cat: "bebidas", desc: [] },
-      "cachaca":      { cat: "bebidas", desc: [] },
-      "cachaça":      { cat: "bebidas", desc: [] },
-
-      // ─── Laticínios ───
-      "leite":        { cat: "laticinios", desc: ["integral","desnatado","semi","semidesnatado","condensado","po","pó"] },
-      "iogurte":      { cat: "laticinios", desc: ["natural","integral","desnatado","grego","morango","frutas"] },
-      "queijo":       { cat: "laticinios", desc: ["mussarela","muçarela","muss","prato","minas","parmesao","parmesão","ralado","par","fresco","branco","coalho"] },
-      "manteiga":     { cat: "laticinios", desc: ["sem","com","sal"] },
-      "margarina":    { cat: "laticinios", desc: [] },
-      "requeijao":    { cat: "laticinios", desc: ["cremoso","light"] },
-      "requeijão":    { cat: "laticinios", desc: ["cremoso","light"] },
-      "creme":        { cat: "laticinios", desc: ["leite","ricota"] },
-      "ricota":       { cat: "laticinios", desc: [] },
-      "bebida lactea":{ cat: "laticinios", desc: ["zero","integral","morango","chocolate"] },
-      "bebida láctea":{ cat: "laticinios", desc: ["zero","integral","morango","chocolate"] },
-
-      // ─── Carnes / Frios ───
-      "frango":       { cat: "carnes", desc: ["peito","coxa","sobrecoxa","asa","file","filé","inteiro","passarinho"] },
-      "carne":        { cat: "carnes", desc: ["moida","moída","picanha","alcatra","patinho","contrafile","contrafilé"] },
-      "linguica":     { cat: "carnes", desc: ["calabresa","toscana","portuguesa"] },
-      "linguiça":     { cat: "carnes", desc: ["calabresa","toscana","portuguesa"] },
-      "presunto":     { cat: "carnes", desc: ["fatiado","cozido"] },
-      "mortadela":    { cat: "carnes", desc: [] },
-      "salsicha":     { cat: "carnes", desc: [] },
-      "bacon":        { cat: "carnes", desc: [] },
-      "peixe":        { cat: "carnes", desc: [] },
-      "tilapia":      { cat: "carnes", desc: ["filé","file"] },
-      "salmao":       { cat: "carnes", desc: [] },
-      "salmão":       { cat: "carnes", desc: [] },
-      "cha de dentro":{ cat: "carnes", desc: [] },
-      "chã de dentro":{ cat: "carnes", desc: [] },
-      "ovo":          { cat: "laticinios", desc: ["branco","vermelho","codorna"] },
-
-      // ─── Hortifruti (sempre genérico, fruta = nome da fruta) ───
-      "tomate":       { cat: "hortifruti", desc: ["italiano","cereja"] },
-      "cebola":       { cat: "hortifruti", desc: ["roxa","branca"] },
-      "alho":         { cat: "hortifruti", desc: [] },
-      "batata":       { cat: "hortifruti", desc: ["doce","inglesa","baroa","palha"] },
-      "cenoura":      { cat: "hortifruti", desc: [] },
-      "banana":       { cat: "hortifruti", desc: ["prata","nanica","pacovan"] },
-      "maca":         { cat: "hortifruti", desc: ["verde","vermelha","gala"] },
-      "maçã":         { cat: "hortifruti", desc: ["verde","vermelha","gala"] },
-      "laranja":      { cat: "hortifruti", desc: ["pera","lima"] },
-      "tangerina":    { cat: "hortifruti", desc: [] },
-      "limao":        { cat: "hortifruti", desc: ["taiti","siciliano"] },
-      "limão":        { cat: "hortifruti", desc: ["taiti","siciliano"] },
-      "uva":          { cat: "hortifruti", desc: ["sem","com","semente","verde","rosé","rose","italia","itália"] },
-      "abacate":      { cat: "hortifruti", desc: [] },
-      "mamao":        { cat: "hortifruti", desc: [] },
-      "mamão":        { cat: "hortifruti", desc: [] },
-      "manga":        { cat: "hortifruti", desc: ["palmer","tommy"] },
-      "abacaxi":      { cat: "hortifruti", desc: [] },
-      "melancia":     { cat: "hortifruti", desc: [] },
-      "melao":        { cat: "hortifruti", desc: [] },
-      "melão":        { cat: "hortifruti", desc: [] },
-      "morango":      { cat: "hortifruti", desc: [] },
-      "abacaxi":      { cat: "hortifruti", desc: [] },
-      "alface":       { cat: "hortifruti", desc: [] },
-      "couve":        { cat: "hortifruti", desc: ["flor"] },
-      "brocolis":     { cat: "hortifruti", desc: [] },
-      "brócolis":     { cat: "hortifruti", desc: [] },
-      "pimentao":     { cat: "hortifruti", desc: ["verde","vermelho","amarelo"] },
-      "pimentão":     { cat: "hortifruti", desc: ["verde","vermelho","amarelo"] },
-      "quiabo":       { cat: "hortifruti", desc: [] },
-      "abobrinha":    { cat: "hortifruti", desc: [] },
-      "salada":       { cat: "hortifruti", desc: ["verao","verão"] },
-      "agriao":       { cat: "hortifruti", desc: [] },
-      "agrião":       { cat: "hortifruti", desc: [] },
-      "salsinha":     { cat: "hortifruti", desc: [] },
-      "salsa":        { cat: "hortifruti", desc: [] },
-      "cebolinha":    { cat: "hortifruti", desc: [] },
-      "coentro":      { cat: "hortifruti", desc: [] },
-      "alecrim":      { cat: "hortifruti", desc: ["desidratado"] },
-
-      // ─── Padaria / Mercearia ───
-      "pao":          { cat: "padaria", desc: ["frances","francês","forma","integral"] },
-      "pão":          { cat: "padaria", desc: ["frances","francês","forma","integral"] },
-      "biscoito":     { cat: "mercearia", desc: ["maisena","cream","cracker","recheado","rosquinha","agua","água","sal"] },
-      "bolacha":      { cat: "mercearia", desc: [] },
-      "torrada":      { cat: "padaria", desc: [] },
-      "bolo":         { cat: "padaria", desc: [] },
-      "macarrao":     { cat: "mercearia", desc: ["instantaneo","instantâneo","espaguete","penne","parafuso"] },
-      "macarrão":     { cat: "mercearia", desc: ["instantaneo","instantâneo","espaguete","penne","parafuso"] },
-      "arroz":        { cat: "mercearia", desc: ["branco","integral","parboilizado"] },
-      "feijao":       { cat: "mercearia", desc: ["preto","carioca","fradinho"] },
-      "feijão":       { cat: "mercearia", desc: ["preto","carioca","fradinho"] },
-      "farinha":      { cat: "mercearia", desc: ["trigo","mandioca","milho","rosca"] },
-      "fuba":         { cat: "mercearia", desc: [] },
-      "fubá":         { cat: "mercearia", desc: [] },
-      "flocao":       { cat: "mercearia", desc: ["milho","arroz"] },
-      "flocão":       { cat: "mercearia", desc: ["milho","arroz"] },
-      "aveia":        { cat: "mercearia", desc: ["flocos","fino","grosso","grossa"] },
-      "azeite":       { cat: "mercearia", desc: ["oliva","extra","virgem"] },
-      "oleo":         { cat: "mercearia", desc: ["soja","girassol","milho","canola"] },
-      "óleo":         { cat: "mercearia", desc: ["soja","girassol","milho","canola"] },
-      "vinagre":      { cat: "mercearia", desc: ["alcool","álcool","maca","maçã","branco"] },
-      "sal":          { cat: "mercearia", desc: ["refinado","grosso","rosa"] },
-      "acucar":       { cat: "mercearia", desc: ["refinado","cristal","mascavo","demerara"] },
-      "açúcar":       { cat: "mercearia", desc: ["refinado","cristal","mascavo","demerara"] },
-      "cafe":         { cat: "mercearia", desc: ["po","pó","graos","grãos","capsula","cápsula"] },
-      "café":         { cat: "mercearia", desc: ["po","pó","graos","grãos","capsula","cápsula"] },
-      "cha":          { cat: "mercearia", desc: ["preto","verde","camomila","mate"] },
-      "chá":          { cat: "mercearia", desc: ["preto","verde","camomila","mate"] },
-      "achocolatado": { cat: "mercearia", desc: ["po","pó","liquido","líquido"] },
-      "chocolate":    { cat: "mercearia", desc: ["po","pó","ao","leite","amargo","branco"] },
-      "ketchup":      { cat: "mercearia", desc: [] },
-      "maionese":     { cat: "mercearia", desc: [] },
-      "mostarda":     { cat: "mercearia", desc: [] },
-      "molho":        { cat: "mercearia", desc: ["tomate","barbecue","soja"] },
-      "geleia":       { cat: "mercearia", desc: ["morango","damasco"] },
-      "tempero":      { cat: "mercearia", desc: ["cebola","alho","completo","verde"] },
-      "salsicha":     { cat: "mercearia", desc: [] },
-      "ervilha":      { cat: "mercearia", desc: [] },
-      "milho":        { cat: "mercearia", desc: ["verde"] },
-      "atum":         { cat: "mercearia", desc: ["ralado","posta"] },
-      "sardinha":     { cat: "mercearia", desc: [] },
-      "extrato":      { cat: "mercearia", desc: ["tomate"] },
-
-      // ─── Snacks / Doces ───
-      "goma de mascar":{ cat: "mercearia", desc: [] },
-      "bala":         { cat: "mercearia", desc: [] },
-      "pirulito":     { cat: "mercearia", desc: [] },
-      "barra":        { cat: "mercearia", desc: ["cereal","chocolate"] },
-      "chips":        { cat: "mercearia", desc: [] },
-      "batata palha": { cat: "mercearia", desc: [] },
-      "granola":      { cat: "mercearia", desc: [] },
-      "cereal":       { cat: "mercearia", desc: ["matinal"] },
-      "amendoim":     { cat: "mercearia", desc: ["torrado","salgado"] },
-      "castanha":     { cat: "mercearia", desc: ["caju","para","pará"] },
-    };
-
-    // Lista de marcas/termos que devem ser ignorados na lista (não na NF)
-    // (já está coberto pelos sinônimos vazios, mas reforço aqui)
-    const brandsAndNoise = new Set([
-      "carrefour","crf","sadia","danone","president","ovomaltine","nestle","nestlé",
-      "betania","betânia","heineken","coca","cola","ferrero","nutella","mentos",
-      "vitarel","brilux","indaia","indaiá","brilhante","ype","ypê","minuano",
-      "pick","ni","par","ralad","muss","fat","tto","arg","chi","fm","cru","pq",
-      "min","ag","arg","chi",
-    ]);
-
-    // Mapa de nomes canônicos: forma normalizada → forma com acentos para exibir
-    const canonicalNames = {
-      "agua": "Água",
-      "água": "Água",
-      "acucar": "Açúcar",
-      "açucar": "Açúcar",
-      "açúcar": "Açúcar",
-      "pao": "Pão",
-      "pão": "Pão",
-      "pao frances": "Pão Francês",
-      "pão francês": "Pão Francês",
-      "macarrao": "Macarrão",
-      "macarrão": "Macarrão",
-      "feijao": "Feijão",
-      "feijão": "Feijão",
-      "limao": "Limão",
-      "limão": "Limão",
-      "mamao": "Mamão",
-      "mamão": "Mamão",
-      "melao": "Melão",
-      "melão": "Melão",
-      "salmao": "Salmão",
-      "salmão": "Salmão",
-      "pimentao": "Pimentão",
-      "pimentão": "Pimentão",
-      "agriao": "Agrião",
-      "agrião": "Agrião",
-      "fuba": "Fubá",
-      "fubá": "Fubá",
-      "flocao": "Flocão",
-      "flocão": "Flocão",
-      "maca": "Maçã",
-      "maçã": "Maçã",
-      "cafe": "Café",
-      "café": "Café",
-      "cha": "Chá",
-      "chá": "Chá",
-      "oleo": "Óleo",
-      "óleo": "Óleo",
-      "agua sanitaria": "Água Sanitária",
-      "água sanitária": "Água Sanitária",
-      "ricota": "Ricota",
-      "linguica": "Linguiça",
-      "linguiça": "Linguiça",
-      "requeijao": "Requeijão",
-      "requeijão": "Requeijão",
-      "cha de dentro": "Chã de Dentro",
-      "chã de dentro": "Chã de Dentro",
-      "alcool": "Álcool",
-      "álcool": "Álcool",
-      "bebida lactea": "Bebida Láctea",
-      "bebida láctea": "Bebida Láctea",
-      "frances": "Francês",
-      "francês": "Francês",
-      "energetico": "Energético",
-      "energético": "Energético",
-      "cachaca": "Cachaça",
-      "cachaça": "Cachaça",
-      "brocolis": "Brócolis",
-      "brócolis": "Brócolis",
-      "padrao": "Padrão",
-      "padrão": "Padrão",
-      "muçarela": "Muçarela",
-      "mussarela": "Mussarela",
-      "parmesao": "Parmesão",
-      "parmesão": "Parmesão",
-      "instantaneo": "Instantâneo",
-      "instantâneo": "Instantâneo",
-      "verao": "Verão",
-      "verão": "Verão",
-      "biodegradavel": "Biodegradável",
-      "biodegradável": "Biodegradável",
-      "higienico": "Higiênico",
-      "higiênico": "Higiênico",
-      "aluminio": "Alumínio",
-      "alumínio": "Alumínio",
-      "portugues": "Português",
-      "português": "Português",
-      "italia": "Itália",
-      "itália": "Itália",
-      "rose": "Rosé",
-      "rosé": "Rosé",
-      "fogao": "Fogão",
-      "fogão": "Fogão",
-      "po": "Pó",
-      "pó": "Pó",
-      "graos": "Grãos",
-      "grãos": "Grãos",
-      "capsula": "Cápsula",
-      "cápsula": "Cápsula",
-      "maracuja": "Maracujá",
-      "maracujá": "Maracujá",
-      "guarana": "Guaraná",
-      "guaraná": "Guaraná",
-      "liquido": "Líquido",
-      "líquido": "Líquido",
-      "moida": "Moída",
-      "moída": "Moída",
-      "contrafile": "Contrafilé",
-      "contrafilé": "Contrafilé",
-      "file": "Filé",
-      "filé": "Filé",
-      "gas": "Gás",
-      "gás": "Gás",
-    };
-
-    // Capitaliza usando mapa canônico (mantém acentos)
-    const capitalizeCanonical = (word) => {
-      if (!word) return word;
-      const norm = word.toLowerCase();
-      if (canonicalNames[norm]) return canonicalNames[norm];
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    };
-
-    // Gera nome amigável GENÉRICO a partir de um nome cru de NF
-    // Estratégia: encontra a palavra-base (ex: "detergente") e opcionalmente
-    // adiciona 1 descritor relevante (ex: "neutro"). Ignora marca.
-    const makeFriendlyName = (rawName) => {
-      if (!rawName) return "";
-
-      // 1. Aplica sinônimos
-      const expanded = expandSynonyms(rawName);
-      const normalized = normalize(expanded);
-
-      // 2. Busca primeiro a palavra-base mais longa (ex: "bebida lactea" antes de "bebida")
-      const baseKeys = Object.keys(productBases).sort((a, b) => b.length - a.length);
-      let foundBase = null;
-      let baseInfo = null;
-      for (const base of baseKeys) {
-        // Verifica se a base aparece como palavra inteira (não dentro de outra)
-        const pattern = new RegExp(`(^|\\s)${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`, "i");
-        if (pattern.test(normalized)) {
-          foundBase = base;
-          baseInfo = productBases[base];
-          break;
-        }
-      }
-
-      // 3. Se encontrou base → monta nome com base + 1 descritor opcional
-      if (foundBase && baseInfo) {
-        const tokens = normalized.split(" ").filter(Boolean);
-        // Procura primeiro descritor relevante que apareça (e não seja a própria base)
-        const validDescs = baseInfo.desc || [];
-        let foundDesc = null;
-        for (const t of tokens) {
-          if (foundBase.includes(t)) continue;  // já é parte da base
-          if (validDescs.some(d => d.toLowerCase() === t.toLowerCase())) {
-            foundDesc = t;
-            break;
-          }
-        }
-
-        // Usa nome canônico (com acentos) se existir
-        const baseDisplay = foundBase.split(" ").map(capitalizeCanonical).join(" ");
-        if (foundDesc) {
-          const descDisplay = capitalizeCanonical(foundDesc);
-          return `${baseDisplay} ${descDisplay}`;
-        }
-        return baseDisplay;
-      }
-
-      // 4. FALLBACK: se não encontrou nenhuma palavra-base, usa o algoritmo antigo
-      // (remove códigos, partículas, marcas, capitaliza)
-      const words = normalized.split(" ").filter(w => {
-        if (!w || w.length < 2) return false;
-        if (friendlyStopwords.has(w.toLowerCase())) return false;
-        if (brandsAndNoise.has(w.toLowerCase())) return false;
-        if (/^\w{0,4}\d+\w*$/.test(w)) return false;
-        if (w.length === 1) return false;
-        return true;
-      });
-      const particles = new Set(["de", "do", "da", "dos", "das", "sem", "com", "para", "em"]);
-      let significantCount = 0;
-      const result = [];
-      for (const w of words) {
-        const isParticle = particles.has(w.toLowerCase());
-        if (!isParticle) {
-          if (significantCount >= 2) break;  // só 2 palavras quando cai no fallback
-          significantCount++;
-        }
-        result.push(isParticle
-          ? w.toLowerCase()
-          : capitalizeCanonical(w)
-        );
-      }
-      while (result.length > 0 && particles.has(result[0].toLowerCase())) result.shift();
-      while (result.length > 0 && particles.has(result[result.length - 1].toLowerCase())) result.pop();
-      return result.join(" ") || rawName;  // último fallback: nome cru
-    };
-
-    // Categoria sugerida pelo nome amigável (via productBases)
-    const guessCategoryFromFriendly = (friendlyName) => {
-      if (!friendlyName) return null;
-      const norm = normalize(friendlyName);
-      const baseKeys = Object.keys(productBases).sort((a, b) => b.length - a.length);
-      for (const base of baseKeys) {
-        const pattern = new RegExp(`(^|\\s)${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`, "i");
-        if (pattern.test(norm)) return productBases[base].cat;
-      }
-      return null;
-    };
+    // (As funções makeFriendlyName e guessCategoryFromFriendly foram movidas para escopo global no topo do arquivo)
 
 
     // ─── AGRUPAMENTO INTELIGENTE ────────────────────────────────────
