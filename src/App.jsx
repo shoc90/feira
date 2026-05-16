@@ -373,7 +373,6 @@ const productBases = {
   "melao":        { cat: "hortifruti", desc: [] },
   "melão":        { cat: "hortifruti", desc: [] },
   "morango":      { cat: "hortifruti", desc: [] },
-  "abacaxi":      { cat: "hortifruti", desc: [] },
   "alface":       { cat: "hortifruti", desc: [] },
   "couve":        { cat: "hortifruti", desc: ["flor"] },
   "brocolis":     { cat: "hortifruti", desc: [] },
@@ -428,7 +427,6 @@ const productBases = {
   "molho":        { cat: "mercearia", desc: ["tomate","barbecue","soja"] },
   "geleia":       { cat: "mercearia", desc: ["morango","damasco"] },
   "tempero":      { cat: "mercearia", desc: ["cebola","alho","completo","verde"] },
-  "salsicha":     { cat: "mercearia", desc: [] },
   "ervilha":      { cat: "mercearia", desc: [] },
   "milho":        { cat: "mercearia", desc: ["verde"] },
   "atum":         { cat: "mercearia", desc: ["ralado","posta"] },
@@ -800,11 +798,32 @@ function mlSearchUrl(name) {
 }
 
 // Gera token único para link de convite (16 caracteres alfanuméricos)
+// Validador de email com regex razoável (não pretende ser perfeito,
+// mas pega 99% dos casos errados - melhor que apenas verificar "@")
+function isValidEmail(email) {
+  if (!email || typeof email !== "string") return false;
+  const trimmed = email.trim();
+  if (trimmed.length < 5 || trimmed.length > 254) return false;
+  // Regex prática: algo@algo.algo (não permite espaços, vírgulas, etc)
+  return /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]{2,}$/.test(trimmed);
+}
+
 function generateInviteToken() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sem 0/O/I/1 (confunde)
+  // Usa crypto.getRandomValues para tokens criptograficamente seguros
+  // (Math.random NÃO é seguro para tokens de acesso)
   let token = "";
-  for (let i = 0; i < 16; i++) {
-    token += chars[Math.floor(Math.random() * chars.length)];
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    for (let i = 0; i < 16; i++) {
+      token += chars[arr[i] % chars.length];
+    }
+  } else {
+    // Fallback (browsers muito antigos) — não deve acontecer
+    for (let i = 0; i < 16; i++) {
+      token += chars[Math.floor(Math.random() * chars.length)];
+    }
   }
   return token;
 }
@@ -1069,7 +1088,7 @@ function AuthScreen({ pendingInviteToken }) {
   const handleSendResetEmail = async () => {
     const trimmed = resetEmail.trim().toLowerCase();
     if (!trimmed) { setResetError("Digite seu email"); return; }
-    if (!trimmed.includes("@")) { setResetError("Email inválido"); return; }
+    if (!isValidEmail(trimmed)) { setResetError("Email inválido"); return; }
     setResetLoading(true); setResetError(null);
     try {
       const { error: e } = await supabase.auth.resetPasswordForEmail(trimmed, {
@@ -1123,9 +1142,26 @@ function AuthScreen({ pendingInviteToken }) {
     }
   };
 
+  // Traduz mensagens comuns do Supabase para PT-BR
+  const translateAuthError = (rawMsg) => {
+    const msg = String(rawMsg || "").toLowerCase();
+    if (msg.includes("invalid login credentials")) return "Email ou senha incorretos";
+    if (msg.includes("email not confirmed")) return "Confirme seu email antes de entrar. Verifique sua caixa de entrada.";
+    if (msg.includes("user already registered")) return "Já existe uma conta com esse email. Tente fazer login.";
+    if (msg.includes("password should be at least")) return "A senha precisa ter pelo menos 6 caracteres";
+    if (msg.includes("password is too weak")) return "Senha muito fraca. Use letras, números e símbolos.";
+    if (msg.includes("invalid email")) return "Email inválido";
+    if (msg.includes("network") || msg.includes("failed to fetch")) return "Sem conexão. Verifique sua internet.";
+    if (msg.includes("rate limit") || msg.includes("too many requests")) return "Muitas tentativas. Aguarde alguns minutos e tente novamente.";
+    if (msg.includes("user not found")) return "Conta não encontrada";
+    return rawMsg || "Erro inesperado. Tente novamente.";
+  };
+
   const handleSignup = async () => {
     if (!email || !password || !name || !cep) { setError("Preencha todos os campos"); return; }
+    if (!isValidEmail(email)) { setError("Email inválido"); return; }
     if (password.length < 6) { setError("Senha precisa ter pelo menos 6 caracteres"); return; }
+    if (name.trim().length < 2) { setError("Digite seu nome completo"); return; }
     setLoading(true); setError(null);
     try {
       const { data, error: signErr } = await supabase.auth.signUp({
@@ -1143,18 +1179,19 @@ function AuthScreen({ pendingInviteToken }) {
       }
       if (data.session) window.location.reload();
       else setEmailSent(true);
-    } catch (e) { setError(e.message || "Erro ao criar conta"); }
+    } catch (e) { setError(translateAuthError(e.message)); }
     setLoading(false);
   };
 
   const handleLogin = async () => {
     if (!email || !password) { setError("Preencha email e senha"); return; }
+    if (!isValidEmail(email)) { setError("Email inválido"); return; }
     setLoading(true); setError(null);
     try {
       const { error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
       if (loginErr) throw loginErr;
     } catch (e) {
-      setError(e.message === "Invalid login credentials" ? "Email ou senha incorretos" : (e.message || "Erro ao entrar"));
+      setError(translateAuthError(e.message));
     }
     setLoading(false);
   };
@@ -1166,7 +1203,7 @@ function AuthScreen({ pendingInviteToken }) {
         provider, options: { redirectTo: window.location.origin + window.location.pathname + window.location.search }
       });
       if (oerr) throw oerr;
-    } catch (e) { setError(e.message); }
+    } catch (e) { setError(translateAuthError(e.message)); }
   };
 
   if (emailSent) {
@@ -1226,13 +1263,13 @@ function AuthScreen({ pendingInviteToken }) {
 
       <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
         {mode==="signup" && (
-          <input style={inp} placeholder="Seu nome" value={name} onChange={e=>setName(e.target.value)} />
+          <input style={inp} placeholder="Seu nome" value={name} onChange={e=>setName(e.target.value)} maxLength={60} />
         )}
-        <input style={inp} placeholder="Email" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email" />
-        <input style={inp} placeholder="Senha" type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete={mode==="login"?"current-password":"new-password"} />
+        <input style={inp} placeholder="Email" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email" maxLength={120} />
+        <input style={inp} placeholder="Senha" type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete={mode==="login"?"current-password":"new-password"} maxLength={72} />
         {mode==="signup" && (
           <>
-            <input style={inp} placeholder="CEP (00000-000)" value={cep} onChange={e=>handleCepChange(e.target.value)} inputMode="numeric" pattern="[0-9]*" type="tel" />
+            <input style={inp} placeholder="CEP (00000-000)" value={cep} onChange={e=>handleCepChange(e.target.value)} inputMode="numeric" pattern="[0-9]*" type="tel" maxLength={9} />
             {cepLoading && <p style={{ color:C.stoneSoft,fontSize:12,paddingLeft:4 }}>Buscando endereço...</p>}
             {cepInfo && (
               <div style={{ background:`${C.sage}22`,border:`1px solid ${C.sage}55`,borderRadius:9,padding:"10px 12px" }}>
@@ -1513,7 +1550,20 @@ function ShareModal({ list, currentUserId, onClose }) {
 
   const handleInviteByEmail = async () => {
     const e = inviteEmail.trim().toLowerCase();
-    if (!e || !e.includes("@")) { setInviteMessage({ type: "error", text: "Email inválido" }); return; }
+    if (!e) {
+      setInviteMessage({ type: "error", text: "Digite o email da pessoa" });
+      return;
+    }
+    if (!isValidEmail(e)) {
+      setInviteMessage({ type: "error", text: "Email inválido. Confira se está escrito corretamente." });
+      return;
+    }
+    // Não pode convidar a si mesmo (busca email atual via auth)
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user?.email && e === user.email.toLowerCase()) {
+      setInviteMessage({ type: "error", text: "Você não pode se convidar." });
+      return;
+    }
     setInviteLoading(true); setInviteMessage(null);
 
     // Verifica se já é membro
@@ -2005,8 +2055,17 @@ function ItemDetailModal({ item, enabledStores, onClose, onMarkPurchased, onUpda
       setEditError("O nome não pode ficar vazio");
       return;
     }
+    if (trimmedName.length < 2) {
+      setEditError("O nome precisa ter pelo menos 2 caracteres");
+      return;
+    }
     if (trimmedName.length > 80) {
       setEditError("Nome muito longo (máx 80 caracteres)");
+      return;
+    }
+    // Verifica se o nome tem pelo menos uma letra (não pode ser só números/símbolos)
+    if (!/[a-záàâãéèêíïóôõöúçñA-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]/i.test(trimmedName)) {
+      setEditError("O nome precisa ter pelo menos uma letra");
       return;
     }
     const newUnit = editUnit.trim() || "un";
@@ -2732,7 +2791,7 @@ function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem, onU
 
         {mode === "manual" ? (
         <div style={{ display:"flex",flexDirection:"column",gap:9 }}>
-          <input style={inp} placeholder="Nome do item" value={name} onChange={e=>setName(e.target.value)} autoFocus onKeyDown={e=>e.key==="Enter"&&handle()} />
+          <input style={inp} placeholder="Nome do item" value={name} onChange={e=>setName(e.target.value)} autoFocus onKeyDown={e=>e.key==="Enter"&&handle()} maxLength={80} />
 
           {name.trim() && (
             <button
@@ -2760,7 +2819,7 @@ function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem, onU
               {["un","kg","g","L","ml","cx","pct","dz"].map(u=><option key={u}>{u}</option>)}
             </select>
           </div>
-          <input style={inp} placeholder="Observação (opcional)" value={note} onChange={e=>setNote(e.target.value)} />
+          <input style={inp} placeholder="Observação (opcional)" value={note} onChange={e=>setNote(e.target.value)} maxLength={200} />
         </div>
         ) : importStep === "input" ? (
           // ─── Modo importação: input do texto ───
@@ -2988,7 +3047,7 @@ function AddListModal({ onAdd, onClose }) {
         </div>
       }
     >
-      <input style={{ ...inp,marginBottom:16 }} placeholder="Nome da lista" value={name} onChange={e=>setName(e.target.value)} autoFocus onKeyDown={e=>e.key==="Enter"&&handle()} />
+      <input style={{ ...inp,marginBottom:16 }} placeholder="Nome da lista" value={name} onChange={e=>setName(e.target.value)} autoFocus onKeyDown={e=>e.key==="Enter"&&handle()} maxLength={50} />
       <p style={{ color:C.stone,fontSize:10,textTransform:"uppercase",letterSpacing:1.5,marginBottom:10 }}>Ícone</p>
       <div style={{ display:"flex",gap:7,flexWrap:"wrap" }}>
         {LIST_ICONS.map(i=>(
@@ -3073,12 +3132,15 @@ function ScreenListDetail({ list, items, members, currentUserId, onBack, enabled
   const isShared = members.length > 1;
 
   // Polling para sincronização (a cada 12 segundos)
+  // Usa ref pra evitar recriar o interval quando onRefresh muda de identidade
+  const onRefreshRef = useRef(onRefresh);
+  useEffect(() => { onRefreshRef.current = onRefresh; }, [onRefresh]);
   useEffect(() => {
     const interval = setInterval(() => {
-      onRefresh();
+      if (onRefreshRef.current) onRefreshRef.current();
     }, 12000);
     return () => clearInterval(interval);
-  }, [onRefresh]);
+  }, []);
 
   const done = items.filter(i=>i.done).length, total = items.length;
   const progress = total ? Math.round((done/total)*100) : 0;
@@ -3673,7 +3735,7 @@ function ScreenSettings({ profile, onSave, onLogout }) {
         <Section title="Dados cadastrais">
           <div style={{ padding:"14px 16px",borderBottom:`1px solid ${C.linen}` }}>
             <p style={{ color:C.stone,fontSize:11,marginBottom:6 }}>Nome</p>
-            <input style={inp} placeholder="Seu nome" value={name} onChange={e=>setName(e.target.value)} />
+            <input style={inp} placeholder="Seu nome" value={name} onChange={e=>setName(e.target.value)} maxLength={60} />
           </div>
           <div style={{ padding:"14px 16px",borderBottom:`1px solid ${C.linen}` }}>
             <p style={{ color:C.stone,fontSize:11,marginBottom:6 }}>Email</p>
@@ -4849,6 +4911,38 @@ export default function App() {
   const [activeList, setActiveList] = useState(null);
   const [tab, setTab] = useState("lists");
   const [savedMsg, setSavedMsg] = useState(false);
+  // Sistema de toast (mensagens flutuantes de sucesso ou erro)
+  // { message, type: "success" | "error" | "info" }
+  const [toast, setToast] = useState(null);
+
+  // Mostra um toast por 3 segundos
+  const showToast = (message, type = "info") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  // Wrapper para operações Supabase: mostra erro se falhar
+  // Uso: const ok = await safeOp(() => supabase.from(...).insert(...), "Erro ao salvar item");
+  const safeOp = async (operation, errorMsg = "Algo deu errado. Tente novamente.") => {
+    try {
+      const result = await operation();
+      if (result?.error) {
+        console.error("[safeOp] erro:", result.error);
+        showToast(errorMsg, "error");
+        return null;
+      }
+      return result;
+    } catch (err) {
+      console.error("[safeOp] exceção:", err);
+      // Detectar erro de rede
+      const isNetworkErr = err.message?.includes("Failed to fetch") || err.message?.includes("NetworkError");
+      const msg = isNetworkErr
+        ? "Sem conexão. Verifique sua internet e tente de novo."
+        : errorMsg;
+      showToast(msg, "error");
+      return null;
+    }
+  };
   const [listMembers, setListMembers] = useState({}); // { list_id: [members] }
   const [activeListMembers, setActiveListMembers] = useState([]);
   const [pendingInviteToken, setPendingInviteToken] = useState(null);
@@ -5071,9 +5165,12 @@ export default function App() {
   }, [lists, items, session]);
 
   const addList = async (list) => {
-    const { data } = await supabase.from("lists").insert({ ...list, user_id: session.user.id }).select().single();
-    if (data) {
-      setLists(prev => [...prev, data]);
+    const result = await safeOp(
+      () => supabase.from("lists").insert({ ...list, user_id: session.user.id }).select().single(),
+      "Não foi possível criar a lista. Tente novamente."
+    );
+    if (result?.data) {
+      setLists(prev => [...prev, result.data]);
       // Trigger no banco já cria o member 'owner', mas atualizamos local também
       setTimeout(loadLists, 300);
     }
@@ -5081,8 +5178,13 @@ export default function App() {
 
   const deleteList = async (id) => {
     if (!window.confirm("Excluir esta lista? Todos os membros perderão acesso.")) return;
-    await supabase.from("lists").delete().eq("id", id);
-    setLists(prev => prev.filter(l => l.id !== id));
+    const result = await safeOp(
+      () => supabase.from("lists").delete().eq("id", id),
+      "Não foi possível excluir a lista."
+    );
+    if (result) {
+      setLists(prev => prev.filter(l => l.id !== id));
+    }
   };
 
   const addItem = async (item) => {
@@ -5094,27 +5196,41 @@ export default function App() {
     if (payload.done) {
       payload.bought_date = payload.bought_date || new Date().toISOString();
     }
-    const { data } = await supabase.from("items").insert(payload).select().single();
-    if (data) setItems(prev => [...prev, data]);
+    const result = await safeOp(
+      () => supabase.from("items").insert(payload).select().single(),
+      "Não foi possível adicionar o item. Tente novamente."
+    );
+    if (result?.data) setItems(prev => [...prev, result.data]);
   };
 
   const toggleItem = async (item) => {
     const newDone = !item.done;
-    const { data } = await supabase.from("items").update({
-      done: newDone, bought_at: newDone ? item.bought_at : null, bought_date: newDone ? new Date().toISOString() : null,
-    }).eq("id", item.id).select().single();
-    if (data) setItems(prev => prev.map(i => i.id===item.id ? data : i));
+    const result = await safeOp(
+      () => supabase.from("items").update({
+        done: newDone, bought_at: newDone ? item.bought_at : null, bought_date: newDone ? new Date().toISOString() : null,
+      }).eq("id", item.id).select().single(),
+      "Não foi possível atualizar o item."
+    );
+    if (result?.data) setItems(prev => prev.map(i => i.id===item.id ? result.data : i));
     setTimeout(loadHistory, 300);
   };
 
   const deleteItem = async (id) => {
-    await supabase.from("items").delete().eq("id", id);
-    setItems(prev => prev.filter(i => i.id !== id));
+    const result = await safeOp(
+      () => supabase.from("items").delete().eq("id", id),
+      "Não foi possível excluir o item."
+    );
+    if (result) {
+      setItems(prev => prev.filter(i => i.id !== id));
+    }
   };
 
   const changeCategory = async (id, category) => {
-    const { data } = await supabase.from("items").update({ category }).eq("id", id).select().single();
-    if (data) setItems(prev => prev.map(i => i.id===id ? data : i));
+    const result = await safeOp(
+      () => supabase.from("items").update({ category }).eq("id", id).select().single(),
+      "Não foi possível alterar a categoria."
+    );
+    if (result?.data) setItems(prev => prev.map(i => i.id===id ? result.data : i));
   };
 
   // Atualiza campos editáveis de um item (nome, quantidade, unidade)
@@ -5141,14 +5257,20 @@ export default function App() {
 
   const markPurchased = async (item, storeId, price) => {
     if (item.done && item.bought_at === storeId) {
-      const { data } = await supabase.from("items").update({ done: false, bought_at: null, bought_date: null, bought_price: null }).eq("id", item.id).select().single();
-      if (data) setItems(prev => prev.map(i => i.id===item.id ? data : i));
+      const result = await safeOp(
+        () => supabase.from("items").update({ done: false, bought_at: null, bought_date: null, bought_price: null }).eq("id", item.id).select().single(),
+        "Não foi possível desmarcar o item."
+      );
+      if (result?.data) setItems(prev => prev.map(i => i.id===item.id ? result.data : i));
       setTimeout(loadHistory, 300);
       return;
     }
-    const { data } = await supabase.from("items").update({ done: true, bought_at: storeId, bought_date: new Date().toISOString(), bought_price: price ?? null }).eq("id", item.id).select().single();
-    if (data) {
-      setItems(prev => prev.map(i => i.id===item.id ? data : i));
+    const result = await safeOp(
+      () => supabase.from("items").update({ done: true, bought_at: storeId, bought_date: new Date().toISOString(), bought_price: price ?? null }).eq("id", item.id).select().single(),
+      "Não foi possível marcar como comprado."
+    );
+    if (result?.data) {
+      setItems(prev => prev.map(i => i.id===item.id ? result.data : i));
       setTimeout(loadHistory, 500);
     }
   };
@@ -5157,8 +5279,11 @@ export default function App() {
     if (!activeList) return;
     const updates = { done: markAsDone };
     if (!markAsDone) { updates.bought_at = null; updates.bought_date = null; updates.bought_price = null; }
-    const { data } = await supabase.from("items").update(updates).eq("list_id", activeList.id).select();
-    if (data) setItems(data);
+    const result = await safeOp(
+      () => supabase.from("items").update(updates).eq("list_id", activeList.id).select(),
+      "Não foi possível atualizar os itens."
+    );
+    if (result?.data) setItems(result.data);
     setTimeout(loadHistory, 300);
   };
 
@@ -5222,9 +5347,12 @@ export default function App() {
   };
 
   const saveProfile = async (updates) => {
-    const { data } = await supabase.from("profiles").update(updates).eq("id", session.user.id).select().single();
-    if (data) {
-      setProfile(data);
+    const result = await safeOp(
+      () => supabase.from("profiles").update(updates).eq("id", session.user.id).select().single(),
+      "Não foi possível salvar as configurações."
+    );
+    if (result?.data) {
+      setProfile(result.data);
       setSavedMsg(true);
       setTimeout(() => setSavedMsg(false), 2000);
     }
@@ -5511,6 +5639,7 @@ export default function App() {
         *{margin:0;padding:0;box-sizing:border-box}
         body{background:${C.sand}}
         @keyframes slideDown{from{transform:translateY(-30px);opacity:0}to{transform:translateY(0);opacity:1}}
+        @keyframes toastSlide{from{transform:translate(-50%, -20px);opacity:0}to{transform:translate(-50%, 0);opacity:1}}
         @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
         @keyframes spin{to{transform:rotate(360deg)}}
         ::-webkit-scrollbar{display:none}
@@ -5524,6 +5653,27 @@ export default function App() {
       {savedMsg && (
         <div style={{ position:"fixed",top:24,left:"50%",transform:"translateX(-50%)",background:C.graphite,color:C.sand,padding:"10px 20px",borderRadius:20,fontWeight:500,fontSize:13,zIndex:999,fontFamily:"'DM Sans',sans-serif" }}>
           ✓ Configurações salvas
+        </div>
+      )}
+
+      {/* Toast genérico (sucesso/erro/info) */}
+      {toast && (
+        <div style={{
+          position:"fixed", top:24, left:"50%", transform:"translateX(-50%)",
+          background: toast.type === "error" ? C.danger : (toast.type === "success" ? C.sage : C.graphite),
+          color: toast.type === "success" ? C.graphite : C.sand,
+          padding:"12px 18px", borderRadius:20,
+          fontWeight:500, fontSize:13, zIndex:9999,
+          fontFamily:"'DM Sans',sans-serif",
+          boxShadow:"0 8px 24px rgba(0,0,0,0.18)",
+          maxWidth:"calc(100% - 32px)",
+          display:"flex", alignItems:"center", gap:10,
+          animation: "toastSlide 0.25s ease"
+        }}>
+          <span style={{ fontSize:15, flexShrink:0 }}>
+            {toast.type === "error" ? "⚠️" : toast.type === "success" ? "✓" : "ℹ️"}
+          </span>
+          <span style={{ lineHeight:1.4 }}>{toast.message}</span>
         </div>
       )}
 
