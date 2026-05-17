@@ -829,25 +829,48 @@ function generateInviteToken() {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// LOGO
+// LOGO — Listou
 // ═════════════════════════════════════════════════════════════════════
-function FeiraLogo({ size = 32, color = C.graphite, accent = C.sage }) {
+// O ícone do app é o "O" com check sage — recortado do nome.
+// O wordmark usa Fraunces (serif) com o "o" estilizado como círculo
+// contendo um check sage.
+
+function ListouLogo({ size = 32, color = C.graphite, accent = C.sage }) {
+  // "O com check" — funciona em qualquer tamanho de 16px a 200px
   return (
     <svg width={size} height={size} viewBox="0 0 60 60">
-      <circle cx="30" cy="30" r="26" fill="none" stroke={color} strokeWidth="2"/>
-      <path d="M19 32 L26 39 L41 23" fill="none" stroke={accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+      <circle cx="30" cy="30" r="22" fill="none" stroke={color} strokeWidth="4"/>
+      <path d="M20 30 L27 37 L41 22" fill="none" stroke={accent} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
 
-function FeiraLockup({ color = C.graphite, accent = C.sage, size = 1 }) {
+// Wordmark "Listou" com o "o" estilizado como círculo contendo o check sage.
+// É um inline-SVG pra garantir alinhamento perfeito do "o" especial com o resto do texto.
+function ListouLockup({ color = C.graphite, accent = C.sage, size = 1 }) {
+  // Escala todos os elementos proporcionalmente
+  const fontSize = 32 * size;
+  const oSize = 11 * size;  // raio do "o" especial
+  const oStroke = 2.5 * size;
   return (
-    <div style={{ display:"flex", alignItems:"center", gap: 10*size }}>
-      <FeiraLogo size={28*size} color={color} accent={accent} />
-      <span style={{ fontFamily:"'Fraunces', Georgia, serif", fontSize: 28*size, fontWeight:500, color, letterSpacing:"-0.5px" }}>feira</span>
+    <div style={{ display:"inline-flex", alignItems:"center", fontFamily:"'Fraunces', Georgia, serif", fontWeight:500, fontSize, color, letterSpacing:"-0.5px", lineHeight:1 }}>
+      <span>List</span>
+      {/* "o" especial: círculo com check sage no lugar da letra */}
+      <span style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width: oSize*2.4, height: oSize*2.4, marginLeft: 1*size, marginRight: 1*size }}>
+        <svg width={oSize*2.4} height={oSize*2.4} viewBox="0 0 30 30" style={{ display:"block" }}>
+          <circle cx="15" cy="15" r="11" fill="none" stroke={color} strokeWidth={oStroke}/>
+          <path d="M10 15 L13.5 18.5 L21 11" fill="none" stroke={accent} strokeWidth={oStroke} strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </span>
+      <span>u</span>
     </div>
   );
 }
+
+// Aliases para compatibilidade — todos os usos existentes de FeiraLogo/FeiraLockup
+// continuam funcionando sem precisar substituir um por um pelo código.
+const FeiraLogo = ListouLogo;
+const FeiraLockup = ListouLockup;
 
 // ═════════════════════════════════════════════════════════════════════
 // AVATAR (círculo com inicial)
@@ -977,7 +1000,7 @@ function NewPasswordScreen({ onDone }) {
       `}</style>
       <div style={{ width:"100%",maxWidth:420,background:"#fff",borderRadius:20,padding:"32px 26px",boxShadow:"0 10px 40px rgba(0,0,0,0.06)" }}>
         <div style={{ display:"flex",alignItems:"center",justifyContent:"center",marginBottom:18 }}>
-          <FeiraLockup />
+          <ListouLockup />
         </div>
 
         {success ? (
@@ -1210,7 +1233,7 @@ function AuthScreen({ pendingInviteToken }) {
     return (
       <div style={{ minHeight:"100vh",background:C.sand,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px",fontFamily:"'DM Sans',sans-serif" }}>
         <div style={{ maxWidth:380,textAlign:"center" }}>
-          <FeiraLogo size={48} />
+          <ListouLogo size={48} />
           <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:24,fontWeight:500,color:C.graphite,marginTop:24,marginBottom:10 }}>Confirme seu email</h2>
           <p style={{ color:C.stone,fontSize:14,lineHeight:1.6 }}>Enviamos um link de confirmação para<br /><strong style={{ color:C.graphite }}>{email}</strong></p>
           <p style={{ color:C.stoneSoft,fontSize:12,marginTop:16,lineHeight:1.6 }}>Após confirmar, volte aqui e faça login.</p>
@@ -1229,9 +1252,8 @@ function AuthScreen({ pendingInviteToken }) {
       `}</style>
 
       <div style={{ display:"flex",flexDirection:"column",alignItems:"center",marginBottom:36 }}>
-        <FeiraLogo size={56} />
-        <h1 style={{ fontFamily:"'Fraunces',serif",fontSize:34,fontWeight:500,color:C.graphite,letterSpacing:"-0.8px",marginTop:18 }}>feira</h1>
-        <p style={{ color:C.stone,fontSize:13,marginTop:6 }}>Sua feira, organizada.</p>
+        <ListouLockup size={1.3} />
+        <p style={{ color:C.stone,fontSize:13,marginTop:14 }}>Listou. Economizou.</p>
       </div>
 
       {pendingInviteToken && (
@@ -1599,7 +1621,7 @@ function ShareModal({ list, currentUserId, onClose }) {
       if (errInvite) {
         setInviteMessage({ type: "error", text: "Erro: " + errInvite.message });
       } else {
-        setInviteMessage({ type: "success", text: `Convite enviado para ${e}. Quando ela criar conta no feira com este email, será adicionada automaticamente.` });
+        setInviteMessage({ type: "success", text: `Convite enviado para ${e}. Quando ela criar conta no Listou com este email, será adicionada automaticamente.` });
         setInviteEmail("");
         loadMembers();
       }
@@ -1957,7 +1979,7 @@ function AcceptInviteScreen({ token, currentUserId, onAccepted, onCancel }) {
 
   return (
     <div style={{ minHeight:"100vh",background:C.sand,fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",padding:"60px 22px 40px",textAlign:"center" }}>
-      <FeiraLogo size={48} />
+      <ListouLogo size={48} />
       <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:24,fontWeight:500,color:C.graphite,marginTop:24,marginBottom:14 }}>Convite</h2>
 
       {error ? (
@@ -3066,7 +3088,7 @@ function ScreenLists({ lists, listCounts, listMembers, onOpen, onAdd, onDelete, 
   return (
     <div style={{ paddingBottom:84 }}>
       <div style={{ padding:"44px 18px 18px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-        <FeiraLockup size={0.85} />
+        <ListouLockup size={0.85} />
         {profile?.name && <p style={{ color:C.stone,fontSize:12,fontFamily:"'DM Sans',sans-serif" }}>Olá, {profile.name.split(" ")[0]}</p>}
       </div>
 
@@ -3784,8 +3806,8 @@ function ScreenSettings({ profile, onSave, onLogout }) {
         <button onClick={onLogout} style={{ width:"100%",padding:"13px",background:"transparent",border:`1px solid ${C.linenDim}`,borderRadius:13,color:C.danger,fontWeight:500,cursor:"pointer",fontSize:14,marginBottom:14,fontFamily:"'DM Sans',sans-serif" }}>Sair da conta</button>
 
         <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"14px",border:`1px solid ${C.linen}`,borderRadius:13 }}>
-          <FeiraLogo size={20} color={C.stoneSoft} accent={C.stoneSoft} />
-          <p style={{ color:C.stoneSoft,fontSize:11,fontFamily:"'Fraunces',serif",fontStyle:"italic" }}>feira · v2.0 · compartilhamento</p>
+          <ListouLogo size={20} color={C.stoneSoft} accent={C.stoneSoft} />
+          <p style={{ color:C.stoneSoft,fontSize:11,fontFamily:"'Fraunces',serif",fontStyle:"italic" }}>Listou · versão beta</p>
         </div>
       </div>
     </div>
@@ -4248,7 +4270,7 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
                 <span style={{
                   width:8, height:8, borderRadius:"50%",
                   background:C.sage,
-                  animation:"feiraPulse 1.4s ease-in-out infinite"
+                  animation:"listouPulse 1.4s ease-in-out infinite"
                 }} />
                 Procurando QR Code…
               </div>
@@ -4256,7 +4278,7 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
 
             {/* Animação CSS injetada */}
             <style>{`
-              @keyframes feiraPulse {
+              @keyframes listouPulse {
                 0%, 100% { opacity: 1; transform: scale(1); }
                 50% { opacity: 0.5; transform: scale(1.4); }
               }
