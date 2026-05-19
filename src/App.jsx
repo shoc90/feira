@@ -1806,6 +1806,43 @@ function ShareModal({ list, currentUserId, onClose }) {
             <p style={{ color:C.stoneSoft,fontSize:13,textAlign:"center",padding:"20px" }}>Carregando...</p>
           ) : (
             <>
+              {/* ═══ EMPTY STATE #5: lista nunca compartilhada (só você) ═══ */}
+              {/* Aparece quando há 1 membro (você) e 0 convites pendentes — incentiva o compartilhamento */}
+              {members.length === 1 && invites.length === 0 && isOwner && (
+                <div style={{ background:`${C.sage}15`, border:`1px solid ${C.sage}33`, borderRadius:13, padding:"14px 16px", marginBottom:14 }}>
+                  <p style={{ color:C.graphite, fontSize:13, fontWeight:500, marginBottom:6 }}>
+                    👋 Que tal compartilhar?
+                  </p>
+                  <p style={{ color:C.stone, fontSize:12, lineHeight:1.55 }}>
+                    Convide alguém da sua família ou amigos pra construírem a lista juntos. As alterações aparecem em tempo real pra todos.
+                  </p>
+                  <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                    <button
+                      onClick={()=>setActiveTab("invite_email")}
+                      style={{
+                        background:C.graphite, color:C.sand,
+                        border:"none", borderRadius:9,
+                        padding:"8px 13px", fontSize:12, fontWeight:500,
+                        cursor:"pointer", fontFamily:"'DM Sans',sans-serif", flex:1
+                      }}
+                    >
+                      ✉️ Por email
+                    </button>
+                    <button
+                      onClick={()=>setActiveTab("invite_link")}
+                      style={{
+                        background:"transparent", color:C.graphite,
+                        border:`1px solid ${C.linenDim}`, borderRadius:9,
+                        padding:"8px 13px", fontSize:12,
+                        cursor:"pointer", fontFamily:"'DM Sans',sans-serif", flex:1
+                      }}
+                    >
+                      🔗 Por link
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {members.map(m => (
                 <div key={m.user_id} style={{ display:"flex",alignItems:"center",gap:11,padding:"10px 0",borderBottom:`1px solid ${C.linen}` }}>
                   <Avatar name={m.name} email={m.email} userId={m.user_id} size={36} fontSize={14} />
@@ -2081,11 +2118,32 @@ function AcceptInviteScreen({ token, currentUserId, onAccepted, onCancel }) {
       <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:24,fontWeight:500,color:C.graphite,marginTop:24,marginBottom:14 }}>Convite</h2>
 
       {error ? (
+        // ═══ EMPTY STATE #10: convite inválido/expirado/usado ═══
+        // Detecta tipo de erro pra mostrar ícone e mensagem adequados
         <>
-          <div style={{ background:`${C.danger}15`,border:`1px solid ${C.danger}55`,borderRadius:11,padding:"14px",marginBottom:16 }}>
-            <p style={{ color:C.danger,fontSize:14 }}>{error}</p>
+          <div style={{ textAlign:"center", marginBottom:18 }}>
+            <div style={{ fontSize:46, marginBottom:14, opacity:0.85 }}>
+              {error.includes("expirou") ? "⏰" :
+               error.includes("já foi utilizado") ? "✓" :
+               "🔗"}
+            </div>
+            <h3 style={{ fontFamily:"'Fraunces',serif", fontSize:20, fontWeight:500, color:C.graphite, marginBottom:8, letterSpacing:"-0.3px" }}>
+              {error.includes("expirou") ? "Convite expirado" :
+               error.includes("já foi utilizado") ? "Convite já usado" :
+               "Convite inválido"}
+            </h3>
+            <p style={{ color:C.stone, fontSize:13, lineHeight:1.55, marginBottom:6 }}>
+              {error.includes("expirou") ?
+                "Este convite passou do prazo de 24 horas." :
+               error.includes("já foi utilizado") ?
+                "Este convite já foi aceito por alguém." :
+                "Este convite não foi encontrado ou pode ter sido cancelado."}
+            </p>
+            <p style={{ color:C.stoneSoft, fontSize:12, lineHeight:1.5, marginTop:14 }}>
+              Peça pra pessoa que te convidou enviar um novo link.
+            </p>
           </div>
-          <button onClick={onCancel} style={{ padding:"12px 24px",background:C.graphite,color:C.sand,border:"none",borderRadius:11,fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>
+          <button onClick={onCancel} style={{ width:"100%", padding:"13px 24px",background:C.graphite,color:C.sand,border:"none",borderRadius:11,fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>
             Voltar para o app
           </button>
         </>
@@ -2673,7 +2731,7 @@ function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete, canEdit, 
 // ═════════════════════════════════════════════════════════════════════
 // ADD ITEM MODAL
 // ═════════════════════════════════════════════════════════════════════
-function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem, onUpdateRawItem }) {
+function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem, onUpdateRawItem, initialMode = "manual" }) {
   const [name, setName] = useState("");
   const [qty, setQty] = useState("1");
   const [unit, setUnit] = useState("un");
@@ -2684,7 +2742,7 @@ function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem, onU
   const [duplicateItem, setDuplicateItem] = useState(null);
 
   // ─── IMPORTAÇÃO DE TEXTO ─────────────────────────────────────────
-  const [mode, setMode] = useState("manual");  // "manual" | "import"
+  const [mode, setMode] = useState(initialMode);  // "manual" | "import"
   const [importText, setImportText] = useState("");
   // Cada item do preview: { name, qty, unit, category, done, _selected }
   // _selected = se vai ser importado (checkbox lateral)
@@ -2967,11 +3025,34 @@ function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem, onU
           // ─── Modo importação: preview ───
           <div>
             {importPreview.length === 0 ? (
-              <div style={{ padding:"24px 16px", textAlign:"center" }}>
-                <div style={{ fontSize:30, marginBottom:8 }}>🤔</div>
-                <p style={{ color:C.stone, fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
-                  Não consegui identificar nenhum item no texto. Volte e tente colar novamente.
+              // ═══ EMPTY STATE #8: texto colado mas nada detectado ═══
+              <div style={{ padding:"32px 18px 20px", textAlign:"center" }}>
+                <div style={{ fontSize:42, marginBottom:14, opacity:0.85 }}>🤔</div>
+                <h3 style={{ fontFamily:"'Fraunces',serif", fontSize:18, fontWeight:500, color:C.graphite, marginBottom:8, letterSpacing:"-0.3px" }}>
+                  Não identifiquei itens
+                </h3>
+                <p style={{ color:C.stone, fontSize:13, lineHeight:1.55, marginBottom:16, fontFamily:"'DM Sans',sans-serif" }}>
+                  O texto colado não parece ter uma lista de produtos. Tente:
                 </p>
+                <div style={{ background:`${C.sage}15`, border:`1px solid ${C.sage}33`, borderRadius:11, padding:"12px 14px", textAlign:"left", maxWidth:280, marginLeft:"auto", marginRight:"auto" }}>
+                  <p style={{ color:C.stone, fontSize:11.5, lineHeight:1.6, fontFamily:"'DM Sans',sans-serif" }}>
+                    • Um item por linha<br/>
+                    • Ex: "2kg arroz" ou "leite x3"<br/>
+                    • Frases ou textos longos não funcionam
+                  </p>
+                </div>
+                <button
+                  onClick={()=>setImportStep("input")}
+                  style={{
+                    marginTop:18,
+                    background:C.graphite, color:C.sand,
+                    border:"none", borderRadius:11,
+                    padding:"11px 22px", fontSize:13, fontWeight:500,
+                    cursor:"pointer", fontFamily:"'DM Sans',sans-serif"
+                  }}
+                >
+                  ← Voltar e editar
+                </button>
               </div>
             ) : (
               <>
@@ -3183,54 +3264,106 @@ function AddListModal({ onAdd, onClose }) {
 // ═════════════════════════════════════════════════════════════════════
 function ScreenLists({ lists, listCounts, listMembers, onOpen, onAdd, onDelete, profile, currentUserId }) {
   const [showAdd, setShowAdd] = useState(false);
+  const firstName = profile?.name?.split(" ")[0] || "";
+  const isEmpty = lists.length === 0;
+
   return (
     <div style={{ paddingBottom:84 }}>
       <div style={{ padding:"44px 18px 18px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
         <ListouLockup size={0.85} />
-        {profile?.name && <p style={{ color:C.stone,fontSize:12,fontFamily:"'DM Sans',sans-serif" }}>Olá, {profile.name.split(" ")[0]}</p>}
+        {profile?.name && <p style={{ color:C.stone,fontSize:12,fontFamily:"'DM Sans',sans-serif" }}>Olá, {firstName}</p>}
       </div>
 
-      <div style={{ padding:"0 14px 8px" }}>
-        <p style={{ color:C.stone,fontSize:10,textTransform:"uppercase",letterSpacing:1.8,fontWeight:500,marginBottom:12,paddingLeft:4 }}>Minhas listas</p>
-      </div>
+      {isEmpty ? (
+        // ═══ EMPTY STATE #1: nenhuma lista criada ═══
+        // Primeiro contato do usuário — onboarding visual + CTA grande
+        <div style={{ padding:"36px 24px 0", textAlign:"center" }}>
+          {/* Ícone grande */}
+          <div style={{ fontSize:54, marginBottom:18, opacity:0.85 }}>🛒</div>
 
-      <div style={{ padding:"0 14px",display:"flex",flexDirection:"column",gap:9 }}>
-        {lists.map((list,idx) => {
-          const counts = listCounts[list.id] || { done:0, total:0 };
-          const pct = counts.total ? Math.round((counts.done/counts.total)*100) : 0;
-          const members = listMembers[list.id] || [];
-          const isShared = members.length > 1;
-          const myRole = members.find(m => m.user_id === currentUserId)?.role;
-          const isOwner = myRole === "owner";
+          {/* Saudação personalizada */}
+          <h2 style={{ fontFamily:"'Fraunces',serif", fontSize:24, fontWeight:500, color:C.graphite, marginBottom:10, letterSpacing:"-0.3px", lineHeight:1.25 }}>
+            {firstName ? `Bem-vindo, ${firstName}!` : "Bem-vindo ao Listou!"}
+          </h2>
 
-          return (
-            <div key={list.id} style={{ animation:`fadeIn 0.3s ease ${idx*0.05}s both` }}>
-              <div onClick={()=>onOpen(list)} style={{ background:"#FAF8F4",borderRadius:16,padding:"16px",cursor:"pointer",border:`1px solid ${C.linen}` }}>
-                <div style={{ display:"flex",alignItems:"center",gap:13 }}>
-                  <div style={{ width:46,height:46,borderRadius:12,background:C.linen,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>{list.icon}</div>
-                  <div style={{ flex:1,minWidth:0 }}>
-                    <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:3 }}>
-                      <p style={{ fontWeight:500,fontSize:16,color:C.graphite,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{list.name}</p>
-                      {isShared && <AvatarStack members={members} max={3} size={20} />}
+          {/* Subtítulo explicativo */}
+          <p style={{ color:C.stone, fontSize:14, lineHeight:1.55, marginBottom:28, maxWidth:300, marginLeft:"auto", marginRight:"auto" }}>
+            Crie sua primeira lista pra organizar as compras, importar notas fiscais e economizar.
+          </p>
+
+          {/* CTA principal */}
+          <button
+            onClick={()=>setShowAdd(true)}
+            style={{
+              background:C.graphite, color:C.sand,
+              border:"none", borderRadius:13,
+              padding:"15px 32px", fontSize:15, fontWeight:500,
+              cursor:"pointer", fontFamily:"'DM Sans',sans-serif",
+              boxShadow:"0 2px 12px rgba(26,31,42,0.15)",
+              display:"inline-flex", alignItems:"center", gap:10
+            }}
+          >
+            <span style={{ fontSize:18, color:C.sage, lineHeight:1 }}>+</span>
+            Criar primeira lista
+          </button>
+
+          {/* Dica adicional */}
+          <div style={{ marginTop:36, padding:"16px 18px", background:`${C.sage}15`, border:`1px solid ${C.sage}33`, borderRadius:13, textAlign:"left", maxWidth:340, marginLeft:"auto", marginRight:"auto" }}>
+            <p style={{ color:C.graphite, fontSize:12, lineHeight:1.55, marginBottom:6, fontWeight:500 }}>
+              💡 Você sabia?
+            </p>
+            <p style={{ color:C.stone, fontSize:12, lineHeight:1.55 }}>
+              Você pode compartilhar listas com sua família, importar notas fiscais pra ver o histórico de preços e descobrir onde compra mais barato.
+            </p>
+          </div>
+        </div>
+      ) : (
+        // ═══ LISTA NORMAL: tem listas criadas ═══
+        <>
+          <div style={{ padding:"0 14px 8px" }}>
+            <p style={{ color:C.stone,fontSize:10,textTransform:"uppercase",letterSpacing:1.8,fontWeight:500,marginBottom:12,paddingLeft:4 }}>Minhas listas</p>
+          </div>
+
+          <div style={{ padding:"0 14px",display:"flex",flexDirection:"column",gap:9 }}>
+            {lists.map((list,idx) => {
+              const counts = listCounts[list.id] || { done:0, total:0 };
+              const pct = counts.total ? Math.round((counts.done/counts.total)*100) : 0;
+              const members = listMembers[list.id] || [];
+              const isShared = members.length > 1;
+              const myRole = members.find(m => m.user_id === currentUserId)?.role;
+              const isOwner = myRole === "owner";
+
+              return (
+                <div key={list.id} style={{ animation:`fadeIn 0.3s ease ${idx*0.05}s both` }}>
+                  <div onClick={()=>onOpen(list)} style={{ background:"#FAF8F4",borderRadius:16,padding:"16px",cursor:"pointer",border:`1px solid ${C.linen}` }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:13 }}>
+                      <div style={{ width:46,height:46,borderRadius:12,background:C.linen,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>{list.icon}</div>
+                      <div style={{ flex:1,minWidth:0 }}>
+                        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:3 }}>
+                          <p style={{ fontWeight:500,fontSize:16,color:C.graphite,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{list.name}</p>
+                          {isShared && <AvatarStack members={members} max={3} size={20} />}
+                        </div>
+                        <p style={{ color:C.stone,fontSize:12 }}>
+                          {counts.total===0?"Lista vazia":`${counts.done}/${counts.total} comprados`}
+                          {!isOwner && myRole && <span> · {roleLabel(myRole)}</span>}
+                        </p>
+                        {counts.total>0 && <div style={{ height:3,background:C.linen,borderRadius:3,marginTop:7 }}><div style={{ height:"100%",width:`${pct}%`,background:C.sage,borderRadius:3,transition:"width 0.4s" }} /></div>}
+                      </div>
+                      {isOwner && (
+                        <button onClick={e=>{e.stopPropagation();onDelete(list.id)}} style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:6 }}>✕</button>
+                      )}
                     </div>
-                    <p style={{ color:C.stone,fontSize:12 }}>
-                      {counts.total===0?"Lista vazia":`${counts.done}/${counts.total} comprados`}
-                      {!isOwner && myRole && <span> · {roleLabel(myRole)}</span>}
-                    </p>
-                    {counts.total>0 && <div style={{ height:3,background:C.linen,borderRadius:3,marginTop:7 }}><div style={{ height:"100%",width:`${pct}%`,background:C.sage,borderRadius:3,transition:"width 0.4s" }} /></div>}
                   </div>
-                  {isOwner && (
-                    <button onClick={e=>{e.stopPropagation();onDelete(list.id)}} style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:6 }}>✕</button>
-                  )}
                 </div>
-              </div>
-            </div>
-          );
-        })}
-        <button onClick={()=>setShowAdd(true)} style={{ background:"transparent",border:`1.5px dashed ${C.linenDim}`,borderRadius:16,padding:"17px",cursor:"pointer",color:C.stone,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8,fontFamily:"'DM Sans',sans-serif" }}>
-          <span style={{ fontSize:18,color:C.sage }}>+</span> Nova lista
-        </button>
-      </div>
+              );
+            })}
+            <button onClick={()=>setShowAdd(true)} style={{ background:"transparent",border:`1.5px dashed ${C.linenDim}`,borderRadius:16,padding:"17px",cursor:"pointer",color:C.stone,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8,fontFamily:"'DM Sans',sans-serif" }}>
+              <span style={{ fontSize:18,color:C.sage }}>+</span> Nova lista
+            </button>
+          </div>
+        </>
+      )}
+
       {showAdd && <AddListModal onAdd={async list=>{await onAdd(list);setShowAdd(false)}} onClose={()=>setShowAdd(false)} />}
     </div>
   );
@@ -3241,6 +3374,7 @@ function ScreenLists({ lists, listCounts, listMembers, onOpen, onAdd, onDelete, 
 // ═════════════════════════════════════════════════════════════════════
 function ScreenListDetail({ list, items, members, currentUserId, onBack, enabledStores, onAddItem, onToggleItem, onDeleteItem, onChangeCategory, onMarkPurchased, onToggleAll, onRefresh, onRegisterPurchase, onUpdateItem, priceHints = {} }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [initialAddMode, setInitialAddMode] = useState("manual");  // "manual" | "import"
   const [openItem, setOpenItem] = useState(null);
   const [showShare, setShowShare] = useState(false);
   const [filter, setFilter] = useState("todos");
@@ -3381,10 +3515,77 @@ function ScreenListDetail({ list, items, members, currentUserId, onBack, enabled
 
       <div style={{ padding:"6px 14px" }}>
         {filteredAndSorted.length===0 && (
-          <div style={{ textAlign:"center",padding:"50px 20px",color:C.stoneSoft }}>
-            <div style={{ fontSize:34,marginBottom:8,opacity:0.5 }}>🛒</div>
-            <p style={{ color:C.stone,fontSize:14 }}>Nenhum item aqui</p>
-          </div>
+          items.length === 0 ? (
+            // ═══ EMPTY STATE #2: lista realmente vazia ═══
+            // Lista criada mas sem nenhum item — primeiro uso da lista
+            <div style={{ textAlign:"center", padding:"42px 22px 30px" }}>
+              <div style={{ fontSize:46, marginBottom:14, opacity:0.85 }}>📝</div>
+              <h3 style={{ fontFamily:"'Fraunces',serif", fontSize:20, fontWeight:500, color:C.graphite, marginBottom:8, letterSpacing:"-0.3px" }}>
+                Sua lista está pronta
+              </h3>
+              <p style={{ color:C.stone, fontSize:13, lineHeight:1.55, marginBottom:24, maxWidth:280, marginLeft:"auto", marginRight:"auto" }}>
+                Adicione itens manualmente ou cole sua lista de uma só vez.
+              </p>
+              {canEdit && (
+                <div style={{ display:"flex", flexDirection:"column", gap:9, maxWidth:240, marginLeft:"auto", marginRight:"auto" }}>
+                  <button
+                    onClick={()=>setShowAdd(true)}
+                    style={{
+                      background:C.graphite, color:C.sand,
+                      border:"none", borderRadius:12,
+                      padding:"13px 18px", fontSize:14, fontWeight:500,
+                      cursor:"pointer", fontFamily:"'DM Sans',sans-serif",
+                      display:"flex", alignItems:"center", justifyContent:"center", gap:8
+                    }}
+                  >
+                    <span style={{ fontSize:16, color:C.sage, lineHeight:1 }}>+</span>
+                    Adicionar item
+                  </button>
+                  <button
+                    onClick={()=>{ setInitialAddMode("import"); setShowAdd(true); }}
+                    style={{
+                      background:"transparent", color:C.graphite,
+                      border:`1px solid ${C.linenDim}`, borderRadius:12,
+                      padding:"12px 18px", fontSize:13,
+                      cursor:"pointer", fontFamily:"'DM Sans',sans-serif"
+                    }}
+                  >
+                    📋 Importar lista de texto
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            // ═══ EMPTY STATE #6: filtro sem resultado ═══
+            // Lista tem itens, mas o filtro atual não mostra nenhum
+            <div style={{ textAlign:"center", padding:"40px 22px 24px", color:C.stoneSoft }}>
+              <div style={{ fontSize:34, marginBottom:10, opacity:0.6 }}>
+                {filter === "comprados" ? "✓" : filter === "pendentes" ? "🛒" : "🔍"}
+              </div>
+              <p style={{ color:C.graphite, fontSize:14, fontWeight:500, marginBottom:6 }}>
+                {filter === "comprados" ? "Nenhum item comprado ainda" :
+                 filter === "pendentes" ? "Tudo comprado!" :
+                 "Nenhum item nesse filtro"}
+              </p>
+              <p style={{ color:C.stone, fontSize:12, lineHeight:1.5, marginBottom:14 }}>
+                {filter === "comprados" ? "Marque um item como comprado pra vê-lo aqui." :
+                 filter === "pendentes" ? "Você marcou todos os itens. Parabéns! 🎉" :
+                 "Tente outro filtro."}
+              </p>
+              <button
+                onClick={()=>setFilter("todos")}
+                style={{
+                  background:"transparent",
+                  border:`1px solid ${C.linenDim}`,
+                  borderRadius:9, padding:"7px 14px",
+                  color:C.graphite, fontSize:12,
+                  cursor:"pointer", fontFamily:"'DM Sans',sans-serif"
+                }}
+              >
+                Ver todos os itens
+              </button>
+            </div>
+          )
         )}
         {filteredAndSorted.map(item=>(
           <ItemRow
@@ -3406,14 +3607,16 @@ function ScreenListDetail({ list, items, members, currentUserId, onBack, enabled
 
       {showAdd && (
         <AddItemModal
-          onAdd={async item=>{await onAddItem(item);setShowAdd(false)}}
-          onClose={()=>setShowAdd(false)}
+          onAdd={async item=>{await onAddItem(item);setShowAdd(false);setInitialAddMode("manual");}}
+          onClose={()=>{setShowAdd(false);setInitialAddMode("manual");}}
           existingItems={items}
+          initialMode={initialAddMode}
           onIncrementItem={async (existingItem, newQtyStr) => {
             if (onUpdateItem) {
               await onUpdateItem(existingItem.id, { qty: newQtyStr });
             }
             setShowAdd(false);
+            setInitialAddMode("manual");
           }}
           onUpdateRawItem={async (itemId, updates) => {
             // Versão "raw" usada na importação em lote: não fecha modal
@@ -3593,13 +3796,53 @@ function ScreenHistory({ history, invoices = [], onDeleteRecord, onDeleteMany, o
       {view === "compras" && (
         <div style={{ padding:"0 14px" }}>
           {groupedByInvoice.length === 0 ? (
-            <div style={{ textAlign:"center",padding:"50px 20px",color:C.stoneSoft }}>
-              <div style={{ fontSize:38,marginBottom:10,opacity:0.5 }}>📋</div>
-              <p style={{ color:C.stone,fontSize:14 }}>Nenhuma compra registrada</p>
-              <p style={{ color:C.stoneSoft,fontSize:12,marginTop:6,lineHeight:1.5 }}>
-                Toque em <strong>🧾</strong> abaixo para registrar uma nota fiscal.
-              </p>
-            </div>
+            // ═══ EMPTY STATE #3: Histórico "Por compras" vazio ═══
+            // Educa o usuário sobre o valor + 2 CTAs (escanear ou colar)
+            history.length === 0 && invoices.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"42px 22px 30px" }}>
+                <div style={{ fontSize:46, marginBottom:14, opacity:0.85 }}>🧾</div>
+                <h3 style={{ fontFamily:"'Fraunces',serif", fontSize:20, fontWeight:500, color:C.graphite, marginBottom:8, letterSpacing:"-0.3px" }}>
+                  Comece seu histórico
+                </h3>
+                <p style={{ color:C.stone, fontSize:13, lineHeight:1.55, marginBottom:24, maxWidth:300, marginLeft:"auto", marginRight:"auto" }}>
+                  Registre uma compra ou importe sua nota fiscal eletrônica pra acompanhar seus gastos e descobrir onde economizar.
+                </p>
+                <div style={{ display:"flex", flexDirection:"column", gap:9, maxWidth:240, marginLeft:"auto", marginRight:"auto" }}>
+                  <button
+                    onClick={()=>onRegisterPurchase && onRegisterPurchase()}
+                    style={{
+                      background:C.graphite, color:C.sand,
+                      border:"none", borderRadius:12,
+                      padding:"13px 18px", fontSize:14, fontWeight:500,
+                      cursor:"pointer", fontFamily:"'DM Sans',sans-serif",
+                      display:"flex", alignItems:"center", justifyContent:"center", gap:8
+                    }}
+                  >
+                    🧾 Registrar primeira compra
+                  </button>
+                </div>
+
+                <div style={{ marginTop:30, padding:"14px 16px", background:`${C.sage}15`, border:`1px solid ${C.sage}33`, borderRadius:12, textAlign:"left", maxWidth:340, marginLeft:"auto", marginRight:"auto" }}>
+                  <p style={{ color:C.graphite, fontSize:12, lineHeight:1.55, marginBottom:6, fontWeight:500 }}>
+                    💡 Para que serve o histórico?
+                  </p>
+                  <p style={{ color:C.stone, fontSize:11.5, lineHeight:1.55 }}>
+                    Ver seus gastos por loja, descobrir aumentos de preço e prever quanto vai gastar nas próximas compras.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              // Tem histórico mas filtro/condição não mostra nada
+              <div style={{ textAlign:"center", padding:"42px 22px 24px", color:C.stoneSoft }}>
+                <div style={{ fontSize:34, marginBottom:10, opacity:0.6 }}>🔍</div>
+                <p style={{ color:C.graphite, fontSize:14, fontWeight:500, marginBottom:6 }}>
+                  Nada por aqui ainda
+                </p>
+                <p style={{ color:C.stone, fontSize:12, lineHeight:1.5 }}>
+                  Ajuste o filtro acima ou registre uma nova compra.
+                </p>
+              </div>
+            )
           ) : groupedByInvoice.map(group => {
             const isExpanded = expandedInvoices.has(group.id);
             const isInvoice = group.type === "invoice";
@@ -3720,10 +3963,43 @@ function ScreenHistory({ history, invoices = [], onDeleteRecord, onDeleteMany, o
 
           <div style={{ padding:"0 14px" }}>
             {filteredAndSorted.length===0 ? (
-              <div style={{ textAlign:"center",padding:"50px 20px",color:C.stoneSoft }}>
-                <div style={{ fontSize:38,marginBottom:10,opacity:0.5 }}>📋</div>
-                <p style={{ color:C.stone,fontSize:14 }}>Nenhuma compra registrada</p>
-              </div>
+              history.length === 0 ? (
+                // ═══ EMPTY STATE #4: histórico totalmente vazio (vista Por itens) ═══
+                <div style={{ textAlign:"center", padding:"42px 22px 30px" }}>
+                  <div style={{ fontSize:46, marginBottom:14, opacity:0.85 }}>📊</div>
+                  <h3 style={{ fontFamily:"'Fraunces',serif", fontSize:20, fontWeight:500, color:C.graphite, marginBottom:8, letterSpacing:"-0.3px" }}>
+                    Nenhum item comprado ainda
+                  </h3>
+                  <p style={{ color:C.stone, fontSize:13, lineHeight:1.55, marginBottom:18, maxWidth:300, marginLeft:"auto", marginRight:"auto" }}>
+                    Marque itens como comprados nas suas listas ou importe uma nota fiscal pra começar a acompanhar.
+                  </p>
+                </div>
+              ) : (
+                // Tem histórico mas filtro/busca não mostra nada
+                <div style={{ textAlign:"center", padding:"42px 22px 24px", color:C.stoneSoft }}>
+                  <div style={{ fontSize:34, marginBottom:10, opacity:0.6 }}>🔍</div>
+                  <p style={{ color:C.graphite, fontSize:14, fontWeight:500, marginBottom:6 }}>
+                    Nenhum item encontrado
+                  </p>
+                  <p style={{ color:C.stone, fontSize:12, lineHeight:1.5, marginBottom:14 }}>
+                    Tente outro filtro ou outra busca.
+                  </p>
+                  {storeFilter !== "all" && (
+                    <button
+                      onClick={()=>setStoreFilter("all")}
+                      style={{
+                        background:"transparent",
+                        border:`1px solid ${C.linenDim}`,
+                        borderRadius:9, padding:"7px 14px",
+                        color:C.graphite, fontSize:12,
+                        cursor:"pointer", fontFamily:"'DM Sans',sans-serif"
+                      }}
+                    >
+                      Limpar filtro
+                    </button>
+                  )}
+                </div>
+              )
             ) : (
               filteredAndSorted.map((item)=>{
                 const isSelected = selectedIds.has(item.id);
@@ -5577,19 +5853,39 @@ export default function App() {
           .maybeSingle();
 
         if (existing) {
+          // BUGFIX: fecha o scanner/paste antes de mostrar modal de duplicata
+          // Sem isso, scanner fica ativo atrás do modal e trava o app no iOS
+          setInvoiceFlow(null);
           setDuplicateInvoice(existing);
           setInvoiceLoading(false);
           return;
         }
       }
 
-      // 2. Chama a função serverless
-      const res = await fetch("/api/invoice-parse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url })
-      });
-      const data = await res.json();
+      // 2. Chama a função serverless (com timeout pra evitar trava)
+      // SEFAZ pode demorar muito ou nunca responder em horários de pico.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s
+      let res, data;
+      try {
+        res = await fetch("/api/invoice-parse", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+          signal: controller.signal,
+        });
+        data = await res.json();
+      } catch (fetchErr) {
+        clearTimeout(timeoutId);
+        if (fetchErr.name === "AbortError") {
+          setInvoiceError("A consulta à SEFAZ demorou demais. Tente novamente em alguns minutos.");
+        } else {
+          setInvoiceError("Erro de conexão. Verifique sua internet e tente novamente.");
+        }
+        setInvoiceLoading(false);
+        return;
+      }
+      clearTimeout(timeoutId);
 
       if (!res.ok || !data.ok) {
         setInvoiceError(data.error || "Não foi possível processar a nota fiscal.");
