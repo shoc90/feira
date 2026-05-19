@@ -1088,6 +1088,8 @@ function AuthScreen({ pendingInviteToken }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [emailSent, setEmailSent] = useState(false);
+  // LGPD: aceite dos Termos e Política — obrigatório no signup
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   // Recuperação de senha: estados separados
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
@@ -1181,24 +1183,51 @@ function AuthScreen({ pendingInviteToken }) {
   };
 
   const handleSignup = async () => {
-    if (!email || !password || !name || !cep) { setError("Preencha todos os campos"); return; }
-    if (!isValidEmail(email)) { setError("Email inválido"); return; }
+    // Normalização: email lowercase + trim, name trim. Evita inconsistências.
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedName = name.trim();
+
+    if (!normalizedEmail || !password || !normalizedName || !cep) { setError("Preencha todos os campos"); return; }
+    if (!isValidEmail(normalizedEmail)) { setError("Email inválido"); return; }
     if (password.length < 6) { setError("Senha precisa ter pelo menos 6 caracteres"); return; }
-    if (name.trim().length < 2) { setError("Digite seu nome completo"); return; }
+    if (normalizedName.length < 2) { setError("Digite seu nome completo"); return; }
+    if (!acceptedTerms) { setError("Você precisa aceitar os Termos e a Política para criar uma conta"); return; }
     setLoading(true); setError(null);
     try {
       const { data, error: signErr } = await supabase.auth.signUp({
-        email, password, options: { data: { name } }
+        email: normalizedEmail,
+        password,
+        options: { data: { name: normalizedName } }
       });
       if (signErr) throw signErr;
       if (data.user) {
-        await supabase.from("profiles").upsert({
-          id: data.user.id, name, email, cep,
+        // Tenta gravar dados completos no profile (trigger já criou básico).
+        // Se falhar (rede, race), tenta uma vez mais — esses dados são importantes
+        // (CEP e principalmente terms_accepted_at por compliance LGPD).
+        const profilePayload = {
+          id: data.user.id,
+          name: normalizedName,
+          email: normalizedEmail,
+          cep,
           city: cepInfo?.localidade || null,
           state: cepInfo?.uf || null,
           street: cepInfo?.logradouro || null,
           neighborhood: cepInfo?.bairro || null,
-        });
+          // LGPD: registrar momento exato e versão dos termos aceitos
+          terms_accepted_at: new Date().toISOString(),
+          terms_version_accepted: "v1.0",
+        };
+        let { error: pErr } = await supabase.from("profiles").upsert(profilePayload);
+        if (pErr) {
+          console.warn("[signup] upsert do profile falhou, tentando de novo:", pErr);
+          // Retry uma vez
+          const retry = await supabase.from("profiles").upsert(profilePayload);
+          if (retry.error) {
+            console.error("[signup] upsert do profile falhou no retry:", retry.error);
+            // Não bloqueia o signup — o profile básico já foi criado pelo trigger.
+            // O usuário pode atualizar CEP depois nas Configurações.
+          }
+        }
       }
       if (data.session) window.location.reload();
       else setEmailSent(true);
@@ -1207,11 +1236,12 @@ function AuthScreen({ pendingInviteToken }) {
   };
 
   const handleLogin = async () => {
-    if (!email || !password) { setError("Preencha email e senha"); return; }
-    if (!isValidEmail(email)) { setError("Email inválido"); return; }
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !password) { setError("Preencha email e senha"); return; }
+    if (!isValidEmail(normalizedEmail)) { setError("Email inválido"); return; }
     setLoading(true); setError(null);
     try {
-      const { error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
+      const { error: loginErr } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
       if (loginErr) throw loginErr;
     } catch (e) {
       setError(translateAuthError(e.message));
@@ -1233,11 +1263,23 @@ function AuthScreen({ pendingInviteToken }) {
     return (
       <div style={{ minHeight:"100vh",background:C.sand,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px",fontFamily:"'DM Sans',sans-serif" }}>
         <div style={{ maxWidth:380,textAlign:"center" }}>
-          <ListouLogo size={48} />
-          <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:24,fontWeight:500,color:C.graphite,marginTop:24,marginBottom:10 }}>Confirme seu email</h2>
-          <p style={{ color:C.stone,fontSize:14,lineHeight:1.6 }}>Enviamos um link de confirmação para<br /><strong style={{ color:C.graphite }}>{email}</strong></p>
-          <p style={{ color:C.stoneSoft,fontSize:12,marginTop:16,lineHeight:1.6 }}>Após confirmar, volte aqui e faça login.</p>
-          <button onClick={()=>{setEmailSent(false);setMode("login")}} style={{ marginTop:24,padding:"12px 24px",background:C.graphite,color:C.sand,border:"none",borderRadius:11,fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Voltar para login</button>
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"center",marginBottom:18 }}>
+            <div style={{ width:64,height:64,borderRadius:"50%",background:`${C.sage}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:30 }}>
+              📧
+            </div>
+          </div>
+          <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:24,fontWeight:500,color:C.graphite,marginBottom:10,letterSpacing:"-0.3px" }}>Confirme seu email</h2>
+          <p style={{ color:C.stone,fontSize:14,lineHeight:1.6 }}>
+            Enviamos um link de confirmação para<br />
+            <strong style={{ color:C.graphite }}>{email.trim().toLowerCase()}</strong>
+          </p>
+          <p style={{ color:C.stoneSoft,fontSize:12,marginTop:16,lineHeight:1.6 }}>
+            Toque no link recebido para ativar sua conta. Depois volte aqui e faça login.
+          </p>
+          <p style={{ color:C.stoneSoft,fontSize:11,marginTop:14,lineHeight:1.5,fontStyle:"italic" }}>
+            Não recebeu? Verifique sua caixa de spam.
+          </p>
+          <button onClick={()=>{setEmailSent(false);setMode("login");setError(null);}} style={{ marginTop:24,padding:"12px 24px",background:C.graphite,color:C.sand,border:"none",borderRadius:11,fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Voltar para login</button>
         </div>
       </div>
     );
@@ -1266,16 +1308,25 @@ function AuthScreen({ pendingInviteToken }) {
       )}
 
       <div style={{ display:"flex",gap:6,marginBottom:24,padding:4,background:C.linen,borderRadius:12 }}>
-        <button onClick={()=>{setMode("login");setError(null)}} style={{ flex:1,padding:"10px",borderRadius:9,background:mode==="login"?C.sand:"transparent",color:mode==="login"?C.graphite:C.stone,border:"none",fontWeight:500,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:mode==="login"?"0 1px 3px rgba(0,0,0,0.06)":"none" }}>Entrar</button>
-        <button onClick={()=>{setMode("signup");setError(null)}} style={{ flex:1,padding:"10px",borderRadius:9,background:mode==="signup"?C.sand:"transparent",color:mode==="signup"?C.graphite:C.stone,border:"none",fontWeight:500,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:mode==="signup"?"0 1px 3px rgba(0,0,0,0.06)":"none" }}>Criar conta</button>
+        <button onClick={()=>{setMode("login");setError(null);setAcceptedTerms(false);}} style={{ flex:1,padding:"10px",borderRadius:9,background:mode==="login"?C.sand:"transparent",color:mode==="login"?C.graphite:C.stone,border:"none",fontWeight:500,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:mode==="login"?"0 1px 3px rgba(0,0,0,0.06)":"none" }}>Entrar</button>
+        <button onClick={()=>{setMode("signup");setError(null);}} style={{ flex:1,padding:"10px",borderRadius:9,background:mode==="signup"?C.sand:"transparent",color:mode==="signup"?C.graphite:C.stone,border:"none",fontWeight:500,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:mode==="signup"?"0 1px 3px rgba(0,0,0,0.06)":"none" }}>Criar conta</button>
       </div>
 
-      <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:18 }}>
+      <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom: mode==="signup" ? 4 : 18 }}>
         <button onClick={()=>handleOAuth("google")} style={{ padding:"12px",background:"#fff",border:`1px solid ${C.linenDim}`,borderRadius:11,color:C.graphite,fontSize:14,fontWeight:500,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,fontFamily:"'DM Sans',sans-serif" }}>
           <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
           Continuar com Google
         </button>
       </div>
+
+      {mode === "signup" && (
+        <p style={{ color:C.stoneSoft, fontSize:10.5, lineHeight:1.5, textAlign:"center", marginBottom:18, fontFamily:"'DM Sans',sans-serif" }}>
+          Ao continuar com Google, você aceita os{" "}
+          <a href="https://feira-wheat.vercel.app/termos.html" target="_blank" rel="noopener noreferrer" style={{ color:C.sageDeep, textDecoration:"underline", textUnderlineOffset:2 }}>Termos</a>
+          {" "}e a{" "}
+          <a href="https://feira-wheat.vercel.app/privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:C.sageDeep, textDecoration:"underline", textUnderlineOffset:2 }}>Política de Privacidade</a>.
+        </p>
+      )}
 
       <div style={{ display:"flex",alignItems:"center",gap:10,margin:"6px 0 18px" }}>
         <div style={{ flex:1,height:1,background:C.linenDim }} />
@@ -1285,13 +1336,13 @@ function AuthScreen({ pendingInviteToken }) {
 
       <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
         {mode==="signup" && (
-          <input style={inp} placeholder="Seu nome" value={name} onChange={e=>setName(e.target.value)} maxLength={60} />
+          <input style={inp} placeholder="Seu nome" value={name} onChange={e=>setName(e.target.value)} maxLength={60} autoComplete="name" />
         )}
         <input style={inp} placeholder="Email" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email" maxLength={120} />
         <input style={inp} placeholder="Senha" type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete={mode==="login"?"current-password":"new-password"} maxLength={72} />
         {mode==="signup" && (
           <>
-            <input style={inp} placeholder="CEP (00000-000)" value={cep} onChange={e=>handleCepChange(e.target.value)} inputMode="numeric" pattern="[0-9]*" type="tel" maxLength={9} />
+            <input style={inp} placeholder="CEP (00000-000)" value={cep} onChange={e=>handleCepChange(e.target.value)} inputMode="numeric" pattern="[0-9]*" type="tel" maxLength={9} autoComplete="postal-code" />
             {cepLoading && <p style={{ color:C.stoneSoft,fontSize:12,paddingLeft:4 }}>Buscando endereço...</p>}
             {cepInfo && (
               <div style={{ background:`${C.sage}22`,border:`1px solid ${C.sage}55`,borderRadius:9,padding:"10px 12px" }}>
@@ -1308,6 +1359,53 @@ function AuthScreen({ pendingInviteToken }) {
       {error && (
         <div style={{ background:`${C.danger}15`,border:`1px solid ${C.danger}55`,borderRadius:9,padding:"10px 12px",marginTop:14 }}>
           <p style={{ color:C.danger,fontSize:13 }}>{error}</p>
+        </div>
+      )}
+
+      {/* LGPD: aceite obrigatório de Termos e Privacidade (só no signup) */}
+      {mode === "signup" && (
+        <div style={{ display:"flex", alignItems:"flex-start", gap:9, marginTop:16, cursor:"pointer" }} onClick={() => setAcceptedTerms(v => !v)}>
+          <div
+            role="checkbox"
+            aria-checked={acceptedTerms}
+            style={{
+              width:18, height:18, borderRadius:4,
+              background: acceptedTerms ? C.sage : "transparent",
+              border: `1.5px solid ${acceptedTerms ? C.sage : C.linenDim}`,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              flexShrink:0, marginTop:2,
+              transition:"all 0.15s ease"
+            }}
+          >
+            {acceptedTerms && (
+              <svg width="11" height="11" viewBox="0 0 12 12">
+                <path d="M2.5 6 L5 8.5 L9.5 3.5" fill="none" stroke={C.graphite} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            )}
+          </div>
+          <label style={{ fontSize:12, color:C.stone, lineHeight:1.5, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
+            Li e aceito os{" "}
+            <a
+              href="https://feira-wheat.vercel.app/termos.html"
+              onClick={(e)=>{ e.stopPropagation(); }}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color:C.sageDeep, textDecoration:"underline", textUnderlineOffset:2 }}
+            >
+              Termos de Uso
+            </a>
+            {" "}e a{" "}
+            <a
+              href="https://feira-wheat.vercel.app/privacidade.html"
+              onClick={(e)=>{ e.stopPropagation(); }}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color:C.sageDeep, textDecoration:"underline", textUnderlineOffset:2 }}
+            >
+              Política de Privacidade
+            </a>
+            .
+          </label>
         </div>
       )}
 
@@ -3684,7 +3782,7 @@ function ScreenHistory({ history, invoices = [], onDeleteRecord, onDeleteMany, o
 // ═════════════════════════════════════════════════════════════════════
 // SCREEN: SETTINGS
 // ═════════════════════════════════════════════════════════════════════
-function ScreenSettings({ profile, onSave, onLogout }) {
+function ScreenSettings({ profile, onSave, onLogout, onDeleteAccount }) {
   const [name, setName] = useState(profile?.name||"");
   const [cep, setCep] = useState(profile?.cep||"");
   const [cepInfo, setCepInfo] = useState(profile?.city ? { logradouro: profile.street || "", bairro: profile.neighborhood || "", localidade: profile.city, uf: profile.state || "" } : null);
@@ -3804,6 +3902,52 @@ function ScreenSettings({ profile, onSave, onLogout }) {
 
         <button onClick={handleSave} style={{ width:"100%",padding:"14px",background:C.graphite,border:"none",borderRadius:13,color:C.sand,fontWeight:500,cursor:"pointer",fontSize:15,marginBottom:10,fontFamily:"'DM Sans',sans-serif" }}>Salvar configurações</button>
         <button onClick={onLogout} style={{ width:"100%",padding:"13px",background:"transparent",border:`1px solid ${C.linenDim}`,borderRadius:13,color:C.danger,fontWeight:500,cursor:"pointer",fontSize:14,marginBottom:14,fontFamily:"'DM Sans',sans-serif" }}>Sair da conta</button>
+
+        {/* Seção: Sobre o Listou — links legais */}
+        <div style={{ marginTop:20, marginBottom:14 }}>
+          <p style={{ color:C.stone,fontSize:10,textTransform:"uppercase",letterSpacing:1.2,fontWeight:600,marginBottom:8,fontFamily:"'DM Sans',sans-serif" }}>
+            Sobre o Listou
+          </p>
+          <div style={{ display:"flex", flexDirection:"column", gap:0, background:C.linen, borderRadius:13, overflow:"hidden", border:`1px solid ${C.linenDim}` }}>
+            <a
+              href="https://feira-wheat.vercel.app/termos.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ padding:"13px 14px", color:C.graphite, fontSize:14, textDecoration:"none", borderBottom:`1px solid ${C.linenDim}`, display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:"'DM Sans',sans-serif" }}
+            >
+              <span>Termos de Uso</span>
+              <span style={{ color:C.stoneSoft, fontSize:13 }}>↗</span>
+            </a>
+            <a
+              href="https://feira-wheat.vercel.app/privacidade.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ padding:"13px 14px", color:C.graphite, fontSize:14, textDecoration:"none", display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:"'DM Sans',sans-serif" }}
+            >
+              <span>Política de Privacidade</span>
+              <span style={{ color:C.stoneSoft, fontSize:13 }}>↗</span>
+            </a>
+          </div>
+        </div>
+
+        {/* Zona de perigo: Excluir conta */}
+        <div style={{ marginTop:14, marginBottom:14 }}>
+          <button
+            onClick={onDeleteAccount}
+            style={{
+              width:"100%", padding:"12px",
+              background:"transparent", border:`1px solid ${C.danger}55`,
+              borderRadius:13, color:C.danger, fontWeight:500,
+              cursor:"pointer", fontSize:13,
+              fontFamily:"'DM Sans',sans-serif"
+            }}
+          >
+            Excluir minha conta
+          </button>
+          <p style={{ color:C.stoneSoft, fontSize:10.5, marginTop:6, lineHeight:1.45, textAlign:"center", fontFamily:"'DM Sans',sans-serif" }}>
+            Esta ação é permanente e remove todos os seus dados (LGPD).
+          </p>
+        </div>
 
         <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"14px",border:`1px solid ${C.linen}`,borderRadius:13 }}>
           <ListouLogo size={20} color={C.stoneSoft} accent={C.stoneSoft} />
@@ -5052,6 +5196,10 @@ export default function App() {
         id: session.user.id,
         name: fullName,
         email: email,
+        // LGPD: Usuários OAuth aceitam os Termos ao continuar com Google
+        // (aviso explícito é mostrado na tela de login antes do click)
+        terms_accepted_at: new Date().toISOString(),
+        terms_version_accepted: "v1.0",
       };
 
       const { data: created, error: createErr } = await supabase
@@ -5601,6 +5749,42 @@ export default function App() {
     setSession(null); setProfile(null); setLists([]); setItems([]);
   };
 
+  // LGPD Art. 18, VI: direito de exclusão dos dados
+  // Apaga TODA a conta + todos os dados (cascade no banco cuida do resto)
+  const handleDeleteAccount = async () => {
+    // Confirmação dupla pra evitar exclusão acidental
+    const first = window.confirm(
+      "ATENÇÃO: você está prestes a excluir sua conta.\n\n" +
+      "Isso vai apagar PERMANENTEMENTE:\n" +
+      "• Todas as suas listas e itens\n" +
+      "• Seu histórico de compras\n" +
+      "• Notas fiscais importadas\n" +
+      "• Convites enviados e recebidos\n\n" +
+      "Esta ação NÃO pode ser desfeita.\n\n" +
+      "Tem certeza que deseja continuar?"
+    );
+    if (!first) return;
+    const second = window.confirm(
+      "Última confirmação: excluir realmente sua conta?\n\n" +
+      "Clique OK para apagar tudo."
+    );
+    if (!second) return;
+
+    // Chama a RPC delete_user_account() que apaga o usuário do auth.users.
+    // O on delete cascade nas tabelas cuida do resto.
+    const { error: rpcErr } = await supabase.rpc("delete_user_account");
+    if (rpcErr) {
+      console.error("[deleteAccount] erro:", rpcErr);
+      showToast("Não foi possível excluir agora. Tente novamente em alguns minutos.", "error");
+      return;
+    }
+    // Após exclusão, faz signOut local pra limpar tudo
+    await supabase.auth.signOut();
+    setSession(null); setProfile(null); setLists([]); setItems([]);
+    // Recarrega a página pra estado completamente limpo
+    setTimeout(() => window.location.reload(), 200);
+  };
+
   // Aceitou convite — limpa URL e entra na lista
   const handleInviteAccepted = (listId) => {
     setPendingInviteToken(null);
@@ -5726,7 +5910,7 @@ export default function App() {
         <>
           {tab==="lists" && <ScreenLists lists={lists} listCounts={listCounts} listMembers={listMembers} onOpen={setActiveList} onAdd={addList} onDelete={deleteList} profile={profile} currentUserId={session.user.id} />}
           {tab==="history" && <ScreenHistory history={history} invoices={invoices} onDeleteRecord={deleteHistoryRecord} onDeleteMany={deleteHistoryMany} onDeleteInvoice={deleteInvoiceAndItems} onRegisterPurchase={()=>openRegisterPurchase()} />}
-          {tab==="settings" && <ScreenSettings profile={profile} onSave={saveProfile} onLogout={handleLogout} />}
+          {tab==="settings" && <ScreenSettings profile={profile} onSave={saveProfile} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} />}
         </>
       )}
 
