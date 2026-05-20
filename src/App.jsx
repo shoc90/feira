@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, AFFILIATE } from "./feira-config";
 
@@ -3270,7 +3269,7 @@ function ScreenLists({ lists, listCounts, listMembers, onOpen, onAdd, onDelete, 
 
   return (
     <div style={{ paddingBottom:84 }}>
-      <div style={{ position:"sticky",top:0,zIndex:10,background:C.sand,padding:"44px 18px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:`1px solid ${C.linen}` }}>
+      <div style={{ padding:"44px 18px 18px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
         <ListouLockup size={0.85} />
         {profile?.name && <p style={{ color:C.stone,fontSize:12,fontFamily:"'DM Sans',sans-serif" }}>Olá, {firstName}</p>}
       </div>
@@ -3444,7 +3443,7 @@ function ScreenListDetail({ list, items, members, currentUserId, onBack, enabled
 
   return (
     <div style={{ paddingBottom:100 }}>
-      <div style={{ position:"sticky",top:0,zIndex:10,padding:"40px 16px 14px",background:C.linen,borderBottom:`1px solid ${C.linenDim}` }}>
+      <div style={{ padding:"40px 16px 14px",background:C.linen }}>
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.stone,fontSize:13,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",gap:5,fontFamily:"'DM Sans',sans-serif" }}>← Voltar</button>
         <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:13 }}>
           <div style={{ width:46,height:46,borderRadius:12,background:C.sand,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24 }}>{list.icon}</div>
@@ -3756,7 +3755,7 @@ function ScreenHistory({ history, invoices = [], onDeleteRecord, onDeleteMany, o
 
   return (
     <div style={{ paddingBottom: hasSelection ? 140 : 84 }}>
-      <div style={{ position:"sticky",top:0,zIndex:10,background:C.sand,padding:"44px 18px 14px",borderBottom:`1px solid ${C.linen}` }}>
+      <div style={{ padding:"44px 18px 14px" }}>
         <p style={{ color:C.stone,fontSize:10,textTransform:"uppercase",letterSpacing:1.8,fontWeight:500,marginBottom:6 }}>Histórico</p>
         <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:26,fontWeight:500,color:C.graphite,letterSpacing:"-0.5px" }}>Compras realizadas</h2>
       </div>
@@ -4123,7 +4122,7 @@ function ScreenSettings({ profile, onSave, onLogout, onDeleteAccount }) {
 
   return (
     <div style={{ paddingBottom:84 }}>
-      <div style={{ position:"sticky",top:0,zIndex:10,background:C.sand,padding:"44px 18px 18px",borderBottom:`1px solid ${C.linen}` }}>
+      <div style={{ padding:"44px 18px 18px" }}>
         <p style={{ color:C.stone,fontSize:10,textTransform:"uppercase",letterSpacing:1.8,fontWeight:500,marginBottom:6 }}>Conta</p>
         <h2 style={{ fontFamily:"'Fraunces',serif",fontSize:26,fontWeight:500,color:C.graphite,letterSpacing:"-0.5px" }}>Configurações</h2>
       </div>
@@ -4245,7 +4244,7 @@ function BottomNav({ tab, setTab }) {
     { id:"settings", label:"Conta", emoji:"⚙️" },
   ];
   return (
-    <div style={{ flexShrink:0,width:"100%",background:C.sand,borderTop:`1px solid ${C.linen}`,display:"flex",zIndex:200,paddingBottom:"env(safe-area-inset-bottom)" }}>
+    <div style={{ position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.sand,borderTop:`1px solid ${C.linen}`,display:"flex",zIndex:200,paddingBottom:"env(safe-area-inset-bottom)" }}>
       {items.map(it=>(
         <button key={it.id} onClick={()=>setTab(it.id)} style={{ flex:1,padding:"10px 4px 10px",background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
           <span style={{ fontSize:19,opacity:tab===it.id?1:0.55,transition:"opacity 0.15s" }}>{it.emoji}</span>
@@ -4523,8 +4522,8 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
 
   return (
     <div style={{
-      position:"fixed", top:0, bottom:0, left:0, right:0,
-      zIndex: 9000,
+      position:"fixed", top:0, bottom:0, left:"50%", transform:"translateX(-50%)",
+      width:"100%", maxWidth:480, zIndex: 500,
       background:C.graphite,
       display:"flex", flexDirection:"column",
       fontFamily:"'DM Sans',sans-serif"
@@ -5190,8 +5189,9 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
 
   return (
     <div style={{
-      position:"fixed", top:0, bottom:0, left:0, right:0,
-      background:C.sand, zIndex: 9000,
+      position:"fixed", top:0, bottom:0, left:"50%", transform:"translateX(-50%)",
+      width:"100%", maxWidth:480,
+      background:C.sand, zIndex: 500,
       display:"flex", flexDirection:"column",
       fontFamily:"'DM Sans',sans-serif"
     }}>
@@ -6135,13 +6135,11 @@ export default function App() {
   const enabledStores = profile?.enabled_stores?.length ? profile.enabled_stores : ["ml","amazon"];
 
   return (
-    <div style={{ position:"fixed",top:0,bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.sand,fontFamily:"'DM Sans',sans-serif",color:C.graphite,display:"flex",flexDirection:"column",overflow:"hidden" }}>
+    <div style={{ minHeight:"100vh",background:C.sand,fontFamily:"'DM Sans',sans-serif",color:C.graphite,maxWidth:480,margin:"0 auto",position:"relative" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;500;600&family=DM+Sans:wght@400;500;600&display=swap');
         *{margin:0;padding:0;box-sizing:border-box}
-        html,body{height:100%;overflow:hidden;overscroll-behavior:none;-webkit-text-size-adjust:100%;background:${C.sand}}
-        #root{height:100%;overflow:hidden}
-        button,a,input,select,textarea{touch-action:manipulation}
+        body{background:${C.sand}}
         @keyframes slideDown{from{transform:translateY(-30px);opacity:0}to{transform:translateY(0);opacity:1}}
         @keyframes toastSlide{from{transform:translate(-50%, -20px);opacity:0}to{transform:translate(-50%, 0);opacity:1}}
         @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
@@ -6181,38 +6179,36 @@ export default function App() {
         </div>
       )}
 
-      <div style={{ flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",overscrollBehavior:"none" }}>
-        {activeList ? (
-          <ScreenListDetail
-            list={activeList}
-            items={items}
-            members={activeListMembers}
-            currentUserId={session.user.id}
-            onBack={()=>setActiveList(null)}
-            enabledStores={enabledStores}
-            onAddItem={addItem}
-            onToggleItem={toggleItem}
-            onDeleteItem={deleteItem}
-            onChangeCategory={changeCategory}
-            onMarkPurchased={markPurchased}
-            onToggleAll={toggleAllItems}
-            onRefresh={refreshActiveList}
-            onUpdateItem={updateItemFields}
-            onRegisterPurchase={()=>openRegisterPurchase({
-              listId: activeList.id,
-              listName: activeList.name,
-              items: items
-            })}
-            priceHints={priceHints}
-          />
-        ) : (
-          <>
-            {tab==="lists" && <ScreenLists lists={lists} listCounts={listCounts} listMembers={listMembers} onOpen={setActiveList} onAdd={addList} onDelete={deleteList} profile={profile} currentUserId={session.user.id} />}
-            {tab==="history" && <ScreenHistory history={history} invoices={invoices} onDeleteRecord={deleteHistoryRecord} onDeleteMany={deleteHistoryMany} onDeleteInvoice={deleteInvoiceAndItems} onRegisterPurchase={()=>openRegisterPurchase()} />}
-            {tab==="settings" && <ScreenSettings profile={profile} onSave={saveProfile} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} />}
-          </>
-        )}
-      </div>
+      {activeList ? (
+        <ScreenListDetail
+          list={activeList}
+          items={items}
+          members={activeListMembers}
+          currentUserId={session.user.id}
+          onBack={()=>setActiveList(null)}
+          enabledStores={enabledStores}
+          onAddItem={addItem}
+          onToggleItem={toggleItem}
+          onDeleteItem={deleteItem}
+          onChangeCategory={changeCategory}
+          onMarkPurchased={markPurchased}
+          onToggleAll={toggleAllItems}
+          onRefresh={refreshActiveList}
+          onUpdateItem={updateItemFields}
+          onRegisterPurchase={()=>openRegisterPurchase({
+            listId: activeList.id,
+            listName: activeList.name,
+            items: items
+          })}
+          priceHints={priceHints}
+        />
+      ) : (
+        <>
+          {tab==="lists" && <ScreenLists lists={lists} listCounts={listCounts} listMembers={listMembers} onOpen={setActiveList} onAdd={addList} onDelete={deleteList} profile={profile} currentUserId={session.user.id} />}
+          {tab==="history" && <ScreenHistory history={history} invoices={invoices} onDeleteRecord={deleteHistoryRecord} onDeleteMany={deleteHistoryMany} onDeleteInvoice={deleteInvoiceAndItems} onRegisterPurchase={()=>openRegisterPurchase()} />}
+          {tab==="settings" && <ScreenSettings profile={profile} onSave={saveProfile} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} />}
+        </>
+      )}
 
       {!invoiceFlow && <BottomNav tab={activeList?"lists":tab} setTab={(t)=>{ setActiveList(null); setTab(t); }} />}
 
@@ -6227,6 +6223,20 @@ export default function App() {
             if (method === "paste") setInvoiceFlow("paste");
             else if (method === "scan") setInvoiceFlow("scan");
           }}
+        />
+      )}
+
+      {invoiceFlow === "scan" && (
+        <QRScannerModal
+          onClose={closeInvoiceFlow}
+          onDetected={(url) => {
+            // QR detectado → dispara fetch (que vai mostrar preview ou erro)
+            handleInvoiceFetch(url);
+          }}
+          onFallbackPaste={() => setInvoiceFlow("paste")}
+          onClearError={() => setInvoiceError(null)}
+          loading={invoiceLoading}
+          error={invoiceError}
         />
       )}
 
@@ -6247,21 +6257,7 @@ export default function App() {
         />
       )}
 
-      {invoiceFlow === "scan" && createPortal(
-        <QRScannerModal
-          onClose={closeInvoiceFlow}
-          onDetected={(url) => {
-            handleInvoiceFetch(url);
-          }}
-          onFallbackPaste={() => setInvoiceFlow("paste")}
-          onClearError={() => setInvoiceError(null)}
-          loading={invoiceLoading}
-          error={invoiceError}
-        />,
-        document.body
-      )}
-
-      {invoiceFlow === "preview" && invoiceData && createPortal(
+      {invoiceFlow === "preview" && invoiceData && (
         <InvoicePreviewScreen
           invoice={invoiceData.invoice}
           items={invoiceData.items}
@@ -6270,8 +6266,7 @@ export default function App() {
           onCancel={closeInvoiceFlow}
           onConfirm={handleInvoiceConfirm}
           saving={invoiceSaving}
-        />,
-        document.body
+        />
       )}
     </div>
   );
