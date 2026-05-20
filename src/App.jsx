@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, AFFILIATE } from "./feira-config";
 
@@ -4522,8 +4523,8 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
 
   return (
     <div style={{
-      position:"absolute", top:0, bottom:0, left:0, right:0,
-      zIndex: 500,
+      position:"fixed", top:0, bottom:0, left:0, right:0,
+      zIndex: 9000,
       background:C.graphite,
       display:"flex", flexDirection:"column",
       fontFamily:"'DM Sans',sans-serif"
@@ -5189,8 +5190,8 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
 
   return (
     <div style={{
-      position:"absolute", top:0, bottom:0, left:0, right:0,
-      background:C.sand, zIndex: 500,
+      position:"fixed", top:0, bottom:0, left:0, right:0,
+      background:C.sand, zIndex: 9000,
       display:"flex", flexDirection:"column",
       fontFamily:"'DM Sans',sans-serif"
     }}>
@@ -6229,20 +6230,6 @@ export default function App() {
         />
       )}
 
-      {invoiceFlow === "scan" && (
-        <QRScannerModal
-          onClose={closeInvoiceFlow}
-          onDetected={(url) => {
-            // QR detectado → dispara fetch (que vai mostrar preview ou erro)
-            handleInvoiceFetch(url);
-          }}
-          onFallbackPaste={() => setInvoiceFlow("paste")}
-          onClearError={() => setInvoiceError(null)}
-          loading={invoiceLoading}
-          error={invoiceError}
-        />
-      )}
-
       {invoiceFlow === "paste" && (
         <PasteLinkModal
           onClose={closeInvoiceFlow}
@@ -6260,7 +6247,21 @@ export default function App() {
         />
       )}
 
-      {invoiceFlow === "preview" && invoiceData && (
+      {invoiceFlow === "scan" && createPortal(
+        <QRScannerModal
+          onClose={closeInvoiceFlow}
+          onDetected={(url) => {
+            handleInvoiceFetch(url);
+          }}
+          onFallbackPaste={() => setInvoiceFlow("paste")}
+          onClearError={() => setInvoiceError(null)}
+          loading={invoiceLoading}
+          error={invoiceError}
+        />,
+        document.body
+      )}
+
+      {invoiceFlow === "preview" && invoiceData && createPortal(
         <InvoicePreviewScreen
           invoice={invoiceData.invoice}
           items={invoiceData.items}
@@ -6269,7 +6270,8 @@ export default function App() {
           onCancel={closeInvoiceFlow}
           onConfirm={handleInvoiceConfirm}
           saving={invoiceSaving}
-        />
+        />,
+        document.body
       )}
     </div>
   );
