@@ -251,6 +251,21 @@ const normalize = s =>
     .replace(/\s+/g, " ")
     .trim();
 
+// Divide string em tokens normalizados (usados no cruzamento NF x lista)
+const tokenize = s =>
+  normalize(s || "")
+    .split(/\s+/)
+    .filter(t => t.length > 1);
+
+// Score de similaridade entre dois arrays de tokens (0–1)
+// Conta tokens em comum dividido pelo maior array
+const scoreMatch = (tokensA, tokensB) => {
+  if (!tokensA.length || !tokensB.length) return 0;
+  const setB = new Set(tokensB);
+  const matches = tokensA.filter(t => setB.has(t)).length;
+  return matches / Math.max(tokensA.length, tokensB.length);
+};
+
 // Aplica sinônimos: substitui termos abreviados da NF pelos amigáveis
 // Ordena por número de palavras (descendente) para garantir que "beb lac"
 // seja aplicado antes de "beb" (evita match parcial errado)
