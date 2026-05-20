@@ -4522,8 +4522,8 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
 
   return (
     <div style={{
-      position:"fixed", top:0, bottom:0, left:"50%", transform:"translateX(-50%)",
-      width:"100%", maxWidth:480, zIndex: 500,
+      position:"absolute", top:0, bottom:0, left:0, right:0,
+      zIndex: 500,
       background:C.graphite,
       display:"flex", flexDirection:"column",
       fontFamily:"'DM Sans',sans-serif"
@@ -5189,8 +5189,7 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
 
   return (
     <div style={{
-      position:"fixed", top:0, bottom:0, left:"50%", transform:"translateX(-50%)",
-      width:"100%", maxWidth:480,
+      position:"absolute", top:0, bottom:0, left:0, right:0,
       background:C.sand, zIndex: 500,
       display:"flex", flexDirection:"column",
       fontFamily:"'DM Sans',sans-serif"
