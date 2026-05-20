@@ -147,6 +147,12 @@ const synonymsDict = {
   "pao f orig": "pão francês",
   "minas p": "minas padrão",
   "minas padrao": "minas padrão",
+  "queijo muss": "queijo mussarela",  // "Queijo Muss Fat" → "Queijo Mussarela"
+  "queijo par": "queijo prato",       // "Queijo Par Fatiado" → "Queijo Prato"
+  "fgo file": "frango filé",          // "Fgo File" → "Frango Filé"
+  "frango file": "frango filé",       // normaliza variações
+  "iog nat": "iogurte natural",       // "Iog Nat" → "Iogurte Natural"
+  "iog gr": "iogurte grego",          // "Iog Gr" → "Iogurte Grego"
 
   // ─── Categorias e tipos de produto ───
   "fgo": "frango", "fg": "frango",
@@ -333,7 +339,7 @@ const productBases = {
   // ─── Laticínios ───
   "leite":        { cat: "laticinios", desc: ["integral","desnatado","semi","semidesnatado","condensado","po","pó"] },
   "iogurte":      { cat: "laticinios", desc: ["natural","integral","desnatado","grego","morango","frutas"] },
-  "queijo":       { cat: "laticinios", desc: ["mussarela","muçarela","muss","prato","minas","parmesao","parmesão","ralado","par","fresco","branco","coalho"] },
+  "queijo":       { cat: "laticinios", desc: ["mussarela","muçarela","muss","prato","minas","parmesao","parmesão","ralado","coalho","fresco","branco"] },
   "manteiga":     { cat: "laticinios", desc: ["sem","com","sal"] },
   "margarina":    { cat: "laticinios", desc: [] },
   "requeijao":    { cat: "laticinios", desc: ["cremoso","light"] },
@@ -613,10 +619,19 @@ const makeFriendlyName = (rawName) => {
       }
     }
 
+    // Mapa de expansão de descritores abreviados → nome completo para exibição
+    const descExpand = {
+      "muss": "Mussarela", "mucarela": "Muçarela", "muçarela": "Muçarela",
+      "par": "Prato", "minas": "Minas", "coalho": "Coalho",
+      "nat": "Natural", "int": "Integral", "desc": "Desnatado",
+      "cond": "Condensado", "po": "Pó", "pó": "Pó",
+      "iog": "Iogurte", "fgo": "Frango", "file": "Filé", "filé": "Filé",
+    };
+
     // Usa nome canônico (com acentos) se existir
     const baseDisplay = foundBase.split(" ").map(capitalizeCanonical).join(" ");
     if (foundDesc) {
-      const descDisplay = capitalizeCanonical(foundDesc);
+      const descDisplay = descExpand[foundDesc.toLowerCase()] || capitalizeCanonical(foundDesc);
       return `${baseDisplay} ${descDisplay}`;
     }
     return baseDisplay;
@@ -5973,22 +5988,44 @@ export default function App() {
           }).eq("id", item.in_list_item_id);
         }
 
-        // (b) Se vamos adicionar à lista E o item NÃO está na lista, cria item novo já comprado
+        // (b) Se vamos adicionar à lista E o item NÃO foi matcheado pelo preview
         if (shouldAddToList && !item.in_list_item_id) {
-          itemsToCreateInList.push({
-            list_id: invoiceListContext.listId,
-            user_id: userId,
-            name: item.name,
-            qty: String(item.qty),
-            unit: item.unit,
-            category: item.category,
-            done: true,
-            bought_at: "store",
-            bought_date: purchasedAt,
-            bought_price: item.total_price,
-            unit_price: item.unit_price,
-            invoice_id: invoiceId,
-          });
+          // Antes de criar, verifica se já existe item com mesmo nome na lista
+          // (pode estar done:true de uma importação anterior) — evita duplicatas
+          const nameNorm = normalize(item.name);
+          const alreadyQueued = itemsToCreateInList.some(q => normalize(q.name) === nameNorm);
+          const existingInList = (invoiceListContext.items || []).find(
+            li => normalize(li.name) === nameNorm
+          );
+
+          if (existingInList) {
+            // Já existe na lista → atualiza em vez de criar duplicata
+            await supabase.from("items").update({
+              done: true,
+              bought_at: "store",
+              bought_date: purchasedAt,
+              bought_price: item.total_price,
+              unit_price: item.unit_price,
+              invoice_id: invoiceId,
+              category: item.category,
+            }).eq("id", existingInList.id);
+          } else if (!alreadyQueued) {
+            // Não existe em lugar nenhum → cria novo
+            itemsToCreateInList.push({
+              list_id: invoiceListContext.listId,
+              user_id: userId,
+              name: item.name,
+              qty: String(item.qty),
+              unit: item.unit,
+              category: item.category,
+              done: true,
+              bought_at: "store",
+              bought_date: purchasedAt,
+              bought_price: item.total_price,
+              unit_price: item.unit_price,
+              invoice_id: invoiceId,
+            });
+          }
         }
 
         // (c) Sempre adiciona ao histórico (nome AMIGÁVEL — UX prioridade)
