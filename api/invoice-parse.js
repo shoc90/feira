@@ -71,16 +71,72 @@ function parseNum(s) {
   return isNaN(n) ? 0 : n;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Dicionário de expansões de abreviações comuns em NFs brasileiras.
+// O foco é tornar nomes amigáveis para o consumidor final.
+// Este parser é EXCLUSIVO do Listou (feira-wheat.vercel.app).
+// O parser do SaaS nfparse.com.br tem cleanItemName mais simples
+// (sem expansões) porque clientes do SaaS preferem o nome cru da NF.
+// ─────────────────────────────────────────────────────────────────────
+const NAME_EXPANSIONS = {
+  // Tipos de produto
+  "fgo": "frango", "fg": "frango",
+  "iog": "iogurte",
+  "cerv": "cerveja",
+  "refrig": "refrigerante",
+  "achoc": "achocolatado", "ach": "achocolatado",
+  "choc": "chocolate",
+  "qj": "queijo",
+  "ling": "linguiça",
+  "mant": "manteiga",
+  "presunt": "presunto",
+  "mort": "mortadela",
+  "lrnj": "laranja", "lrj": "laranja",
+  "limonad": "limonada",
+  "marac": "maracujá",
+  "abacax": "abacaxi",
+  "amend": "amendoim",
+  "biscoit": "biscoito",
+  "macarr": "macarrão",
+  "azeit": "azeite",
+  "vinag": "vinagre",
+  // Atributos
+  "nat": "natural",
+  "int": "integral",
+  "trad": "tradicional",
+  // Ruído comum a remover (vira string vazia)
+  // OBS: "extra" foi REMOVIDO da lista porque em "azeite extra virgem" significa qualidade
+  "granel": "", "promo": "", "esp": "", "novo": "",
+};
+
 function cleanItemName(raw) {
   if (!raw) return "";
-  // Remove espaços extras, capitaliza
-  let cleaned = raw.replace(/\s+/g, " ").trim();
+  let cleaned = raw.replace(/\s+/g, " ").trim().toLowerCase();
+
+  // BUGFIX: trata c/ e s/ ANTES (eles podem estar colados com palavra: "c/osso" → "com osso")
+  // Não usa NAME_EXPANSIONS porque o regex de word-boundary não pega "c/osso"
+  cleaned = cleaned.replace(/\bc\//g, "com ");
+  cleaned = cleaned.replace(/\bs\//g, "sem ");
+
+  // Expande abreviações conhecidas (com word boundaries por espaço)
+  for (const [abbr, full] of Object.entries(NAME_EXPANSIONS)) {
+    const re = new RegExp(`(^|\\s)${abbr}(?=\\s|$)`, "g");
+    cleaned = cleaned.replace(re, full ? `$1${full}` : "");
+  }
+
+  // BUGFIX: remove códigos numéricos soltos (5+ dígitos) também no INÍCIO da string
+  // (mantém 500g, 1l — só remove números puros sem unidade colada)
+  cleaned = cleaned.replace(/(^|\s)\d{5,}(?=\s|$)/g, " ");
+
+  // Capitaliza primeira letra de cada palavra
   cleaned = cleaned
-    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
     .split(" ")
     .filter(w => w.length > 0)
     .map(w => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+
   return cleaned;
 }
 
