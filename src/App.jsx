@@ -5387,6 +5387,49 @@ export default function App() {
     setTimeout(() => setToast(null), 3500);
   };
 
+  // Bloqueia zoom no mobile (pinch-to-zoom, double-tap-to-zoom)
+  // Objetivo: app deve se comportar como app nativo, não como webpage
+  useEffect(() => {
+    // 1. Atualiza/cria a meta viewport com user-scalable=no
+    let meta = document.querySelector('meta[name="viewport"]');
+    const previousContent = meta ? meta.getAttribute("content") : null;
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.setAttribute("name", "viewport");
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute(
+      "content",
+      "width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    );
+
+    // 2. Bloqueia gesto de pinch no iOS (Safari ignora user-scalable=no às vezes)
+    const preventGesture = (e) => e.preventDefault();
+    document.addEventListener("gesturestart", preventGesture, { passive: false });
+    document.addEventListener("gesturechange", preventGesture, { passive: false });
+    document.addEventListener("gestureend", preventGesture, { passive: false });
+
+    // 3. Bloqueia double-tap zoom (iOS)
+    let lastTouchEnd = 0;
+    const preventDoubleTap = (e) => {
+      const now = Date.now();
+      if (now - lastTouchEnd <= 300) {
+        e.preventDefault();
+      }
+      lastTouchEnd = now;
+    };
+    document.addEventListener("touchend", preventDoubleTap, { passive: false });
+
+    // Cleanup: restaura viewport se componente desmontar (improvável, mas seguro)
+    return () => {
+      document.removeEventListener("gesturestart", preventGesture);
+      document.removeEventListener("gesturechange", preventGesture);
+      document.removeEventListener("gestureend", preventGesture);
+      document.removeEventListener("touchend", preventDoubleTap);
+      if (previousContent && meta) meta.setAttribute("content", previousContent);
+    };
+  }, []);
+
   // Wrapper para operações Supabase: mostra erro se falhar
   // Uso: const ok = await safeOp(() => supabase.from(...).insert(...), "Erro ao salvar item");
   const safeOp = async (operation, errorMsg = "Algo deu errado. Tente novamente.") => {
