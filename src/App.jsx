@@ -153,6 +153,14 @@ const synonymsDict = {
   "frango file": "frango filé",       // normaliza variações
   "iog nat": "iogurte natural",       // "Iog Nat" → "Iogurte Natural"
   "iog gr": "iogurte grego",          // "Iog Gr" → "Iogurte Grego"
+  // ✨ Adicionados (2026-05-22) — abreviações truncadas vistas em NFs reais
+  "papel hig": "papel higiênico",     // "Papel Hig Folha Dupla" → "Papel Higiênico Folha Dupla"
+  "cm dental": "creme dental",        // "Cm Dental Colgate" → "Creme Dental Colgate"
+  "pasta dent": "pasta de dente",
+  "enx buc": "enxaguante bucal",
+  "cond cab": "condicionador",        // "Cond Cab" → "Condicionador" (evita confusão com leite condensado)
+  "leite cond": "leite condensado",
+  "cm leite": "creme de leite",       // "Cm Leite" → "Creme de Leite"
 
   // ─── Categorias e tipos de produto ───
   "fgo": "frango", "fg": "frango",
@@ -183,6 +191,27 @@ const synonymsDict = {
   "leitao": "leitão",
   "agriao": "agrião",
 
+  // ✨ Adicionados (2026-05-22) — abreviações vistas em NFs ou comuns
+  "vho": "vinho",            // "Vho Malbec" → "Vinho Malbec"
+  "bisc": "biscoito",        // "Bisc Maisena" → "Biscoito Maisena"
+  "deterg": "detergente",    // "Deterg Neutro" → "Detergente Neutro"
+  "desod": "desodorante",
+  "sabon": "sabonete",       // versão mais explícita que "sab"
+  "shamp": "shampoo",
+  "amac": "amaciante",
+  "desinf": "desinfetante",
+  "marg": "margarina",
+  "farin": "farinha",
+  "chocol": "chocolate",     // mais longo que "choc", evita conflito
+  "sorv": "sorvete",
+  "acuc": "açúcar",
+  "alc": "álcool",
+  "presunt": "presunto",
+  "mort": "mortadela",
+  "salam": "salame",
+  "azeit": "azeite",
+  "vinag": "vinagre",
+
   // ─── Descritores ───
   "antibac": "antibacteriano",  // "Sab Barra Antibac"
   "se": "sem",                  // "Uva Se Crf" → "Uva Sem Crf"
@@ -190,13 +219,24 @@ const synonymsDict = {
   "lac": "",                    // (já incorporado em "beb lac")
   "nat": "natural",
   "trad": "tradicional",
+  "tradi": "tradicional",       // ✨ "Arroz Tradi" → "Arroz Tradicional"
   "int": "integral",
+  "integ": "integral",          // ✨ versão mais longa
   "fino": "fino",
   "novo": "novo",
   "padrao": "padrão",
   "alcool": "álcool",
   "verde": "verde",
   "amarelo": "amarelo",
+  // ✨ Adicionados (2026-05-22)
+  "desnat": "desnatado",
+  "semi": "semidesnatado",
+  "cond": "condensado",         // CUIDADO: ver "leite cond" e "cm leite" no topo
+  "org": "orgânico",
+  "cmn": "comum",
+  "fat": "fatiado",
+  "pic": "picado",
+  "ral": "ralado",
 
   // ─── Marcas (mantém capitalizado) ───
   "sad": "Sadia",
@@ -214,6 +254,17 @@ const synonymsDict = {
   "cola": "Cola",
   "natura": "Natura",
   "tsonia": "",      // marca pouco conhecida que polui
+
+  // ─── Marcas que viraram substantivo comum no português brasileiro ───
+  // (Dicionarizadas como termo genérico — uso seguro)
+  // ✨ Adicionados (2026-05-22)
+  "maisena": "amido de milho",
+  "maizena": "amido de milho",
+  "bombril": "palha de aço",
+  "cotonete": "haste flexível",
+  "gillette": "lâmina de barbear",
+  "bandaid": "curativo",
+  "band-aid": "curativo",
 
   // ─── Stopwords (palavras vazias) ───
   // ATENÇÃO: NÃO remover "de"/"do"/"da" aqui — productBases tem chaves como
@@ -679,6 +730,90 @@ const guessCategoryFromFriendly = (friendlyName) => {
 
 
 // ═════════════════════════════════════════════════════════════════════
+// COLAPSAMENTO DE VARIEDADES
+//
+// Algumas variedades de produtos são "a mesma coisa" para o usuário final
+// (Banana Nanica = Banana, Iogurte Natural = Iogurte). Outras NÃO são
+// (Banana da Terra ≠ Banana, Iogurte Grego ≠ Iogurte).
+//
+// O dicionário abaixo define EXPLICITAMENTE quais variantes colapsam no
+// item-pai. É uma lista controlada — variedade não listada permanece
+// separada por segurança.
+//
+// Convenção: chaves e valores em minúsculas, sem acento, no singular.
+// O collapseVariant remove acentos antes de comparar.
+// ═════════════════════════════════════════════════════════════════════
+const productVariants = {
+  "banana":       ["nanica", "pacovan", "prata", "ouro", "caturra"],
+  "batata":       ["inglesa", "asterix", "monalisa"],
+  "iogurte":      ["natural"],
+  "ovo":          ["branco", "vermelho", "caipira"],
+  "refrigerante": ["cola", "guarana", "limao", "laranja", "uva"],
+  "uva":          ["sem caroco", "sem", "rubi", "italia", "niagara", "thompson"],
+
+  // ✨ Adicionados (2026-05-22)
+  // CRITÉRIO: variante colapsa só quando é "a mesma coisa funcionalmente" pro
+  // usuário típico de lista de compras. Caso de dúvida, deixar de fora.
+  "arroz":        ["branco", "agulhinha", "parboilizado", "polido"],
+  "tomate":       ["italiano", "salada", "caqui", "longa vida"],
+  "cebola":       ["branca", "roxa"],
+  "alface":       ["crespa", "americana", "lisa"],
+  "mamao":        ["papaia", "papaya", "formosa", "hawaii", "havai"],
+  "melao":        ["amarelo", "gaia", "espanhol"],
+  "laranja":      ["pera", "lima", "bahia"],
+  "limao":        ["tahiti", "siciliano", "galego"],
+  "manga":        ["tommy", "palmer", "espada", "rosa"],
+  "manteiga":     ["com sal", "sem sal"],   // decisão Sylvio 2026-05-22: fundir
+  // NÃO colapsamos intencionalmente:
+  //   - leite (integral/desnatado/semi são produtos distintos)
+  //   - feijao (carioca/preto/fradinho mudam o prato)
+  //   - queijo (coalho/mussarela/prato/minas são bem diferentes)
+  //   - frango (peito/coxa/asa são cortes distintos)
+};
+
+// Remove acentos e baixa caixa pra comparação tolerante
+const _stripVariant = s =>
+  (s || "")
+    .toString()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+// Recebe um nome já passado pelo makeFriendlyName e tenta colapsar variedade.
+// Retorna apenas o "pai" se TODOS os tokens depois do pai forem variantes
+// conhecidas. Caso contrário, retorna o nome original (sem alteração).
+//
+// Exemplos:
+//   "Banana Nanica"     → "Banana"     (nanica está em variants.banana)
+//   "Banana da Terra"   → "Banana da Terra"  (terra NÃO está)
+//   "Uva Sem Caroço"    → "Uva"        (variante de 2 tokens "sem caroco")
+//   "Iogurte Grego"     → "Iogurte Grego"    (grego NÃO está em variants.iogurte)
+const collapseVariant = (name) => {
+  if (!name || typeof name !== "string") return name;
+
+  const stripped = _stripVariant(name);
+  const tokens = stripped.split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return name; // só tem o pai (ou string vazia) → nada a fazer
+
+  const parent = tokens[0];
+  const variants = productVariants[parent];
+  if (!variants) return name; // não conhecemos esse pai → preserva
+
+  // Tudo depois do pai (pode ser 1 ou mais tokens)
+  const rest = tokens.slice(1).join(" ");
+
+  // Match exato: "sem caroco", "nanica", etc.
+  if (variants.includes(rest)) {
+    // Retorna o pai capitalizado (primeira letra maiúscula, igual makeFriendlyName)
+    return parent.charAt(0).toUpperCase() + parent.slice(1);
+  }
+
+  return name;
+};
+
+
+// ═════════════════════════════════════════════════════════════════════
 // PARSER DE TEXTO IMPORTADO (Apple Notes, Google Keep, WhatsApp, etc)
 // Cada linha = 1 item potencial.
 // Detecta: bullets, números, quantidades, unidades, estado (marcado/desmarcado)
@@ -785,7 +920,9 @@ function parseImportedList(text) {
 
     // 11. Aplica makeFriendlyName GLOBAL (mesma lógica da NF)
     // Resultado: "manteiga" → "Manteiga", "cafe" → "Café", "pedaço de charque" → "Charque"
-    const friendlyName = makeFriendlyName(afterConnector) || afterConnector;
+    // Depois passa por collapseVariant pra fundir variedades conhecidas
+    // (ex: "Banana Nanica" → "Banana", "Iogurte Natural" → "Iogurte")
+    const friendlyName = collapseVariant(makeFriendlyName(afterConnector) || afterConnector);
 
     // 12. Categoria pela base ou fallback
     const category = guessCategoryFromFriendly(friendlyName) || guessCategory(afterConnector);
@@ -5041,7 +5178,10 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
     // que têm EANs diferentes (cada pesagem é um EAN único) mas são o mesmo produto.
     const groupedMap = new Map();
     for (const it of items) {
-      const friendlyForGrouping = makeFriendlyName(it.name);
+      // Aplica makeFriendlyName + collapseVariant pra fundir variedades.
+      // Ex: "Banana Nanica" e "Banana Pacovan" viram ambos "Banana",
+      // então caem na mesma chave e somam quantidades/preços.
+      const friendlyForGrouping = collapseVariant(makeFriendlyName(it.name));
       // Chave de agrupamento: nome amigável genérico normalizado
       const groupKey = `name:${normalize(friendlyForGrouping || it.name)}`;
       if (groupedMap.has(groupKey)) {
@@ -5086,14 +5226,29 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
       const matchedListItem = matches[nfIdx] || null;
       // Se há match → usa o nome da lista (já é amigável)
       // Se NÃO há match → gera nome amigável a partir do nome cru da NF
-      const friendlyDisplayName = matchedListItem ? matchedListItem.name : makeFriendlyName(it.name);
+      //                   e colapsa variedade conhecida ("Banana Nanica" → "Banana")
+      const friendlyDisplayName = matchedListItem
+        ? matchedListItem.name
+        : collapseVariant(makeFriendlyName(it.name));
       // Categoria: prioridade → match na lista → base genérica → guessCategory (legacy)
       const catFromBase = guessCategoryFromFriendly(friendlyDisplayName);
+
+      // Guarda a variedade original quando o nome foi colapsado.
+      // Ex: NF tem "Banana Pacovan", exibimos "Banana", e invoice_variant fica "Pacovan".
+      // Hoje é invisível na UI, mas reserva o dado pra análises futuras de histórico.
+      const friendlyRaw = makeFriendlyName(it.name) || it.name;
+      const collapsedRaw = collapseVariant(friendlyRaw);
+      const variantPart = (friendlyRaw && collapsedRaw && friendlyRaw !== collapsedRaw)
+        ? friendlyRaw.slice(collapsedRaw.length).trim()
+        : null;
+
       return {
         ...it,
         id: `tmp_${it.n}`,
         // Nome técnico (da NF) preservado em invoice_name
         invoice_name: it.name,
+        // Variedade original colapsada (ex: "Nanica", "Pacovan") ou null
+        invoice_variant: variantPart || null,
         // Nome a EXIBIR (amigável SEMPRE)
         name: friendlyDisplayName || it.name,  // fallback no nome cru se gerador falhar
         category: matchedListItem?.category || catFromBase || guessCategory(it.name),
