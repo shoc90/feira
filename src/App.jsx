@@ -642,17 +642,59 @@ const makeFriendlyName = (rawName) => {
   const expanded = expandSynonyms(rawName);
   const normalized = normalize(expanded);
 
-  // 2. Busca primeiro a palavra-base mais longa (ex: "bebida lactea" antes de "bebida")
+  // 2. Busca de base
+  //    Estratégia em DUAS passadas:
+  //
+  //    2A. Primeiro tenta bases PRIORITÁRIAS — bases que sempre ganham quando
+  //        aparecem na string, independente de outras bases também aparecerem.
+  //        Necessário pra casos como "Suco Nat One Laranja 900", onde tanto
+  //        "suco" quanto "laranja" são bases válidas, mas queremos "suco"
+  //        porque é o contêiner (e laranja vira descritor).
+  //
+  //    2B. Se nenhuma prioritária bater, usa a lógica clássica: bases ordenadas
+  //        por tamanho (mais longa primeiro), pra preservar matches como
+  //        "leite condensado" antes de "leite", "bebida lactea" antes de "bebida".
+  //
+  //    Em caso de empate dentro da passada 2A (raro mas possível: "Suco de
+  //    Tomate" tem suco E tomate como base), ganha a que aparece PRIMEIRO na
+  //    string normalizada — porque em português, o substantivo principal
+  //    geralmente vem antes ("Suco DE Tomate", não "Tomate Suco").
+  //
+  // Lista escolhida com Sylvio em 2026-05-24
+  // NOTA: "sopa" e "caldo" estão na lista mas NÃO existem em productBases ainda.
+  // Ficam inativas até alguém adicioná-las — sem efeito colateral.
+  const priorityBases = new Set([
+    "suco", "vinagre", "leite", "creme", "molho", "tempero", "sopa", "cha", "caldo"
+  ]);
   const baseKeys = Object.keys(productBases).sort((a, b) => b.length - a.length);
   let foundBase = null;
   let baseInfo = null;
+
+  // ── 2A. Passada prioritária
+  let bestPriorityPos = Infinity;
   for (const base of baseKeys) {
-    // Verifica se a base aparece como palavra inteira (não dentro de outra)
+    if (!priorityBases.has(base)) continue;
     const pattern = new RegExp(`(^|\\s)${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`, "i");
-    if (pattern.test(normalized)) {
-      foundBase = base;
-      baseInfo = productBases[base];
-      break;
+    const match = normalized.match(pattern);
+    if (match) {
+      const pos = match.index;
+      if (pos < bestPriorityPos) {
+        bestPriorityPos = pos;
+        foundBase = base;
+        baseInfo = productBases[base];
+      }
+    }
+  }
+
+  // ── 2B. Passada clássica (só se a prioritária não achou nada)
+  if (!foundBase) {
+    for (const base of baseKeys) {
+      const pattern = new RegExp(`(^|\\s)${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`, "i");
+      if (pattern.test(normalized)) {
+        foundBase = base;
+        baseInfo = productBases[base];
+        break;
+      }
     }
   }
 
@@ -764,6 +806,8 @@ const productVariants = {
   "limao":        ["tahiti", "siciliano", "galego"],
   "manga":        ["tommy", "palmer", "espada", "rosa"],
   "manteiga":     ["com sal", "sem sal"],   // decisão Sylvio 2026-05-22: fundir
+  "cerveja":      ["alcool"],                // decisão Sylvio 2026-05-24: "Cerveja Álcool" → "Cerveja"
+  "vinagre":      ["alcool"],                // decisão Sylvio 2026-05-24: "Vinagre Álcool" → "Vinagre"
   // NÃO colapsamos intencionalmente:
   //   - leite (integral/desnatado/semi são produtos distintos)
   //   - feijao (carioca/preto/fradinho mudam o prato)
