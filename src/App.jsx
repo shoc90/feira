@@ -167,9 +167,10 @@ const synonymsDict = {
   "iog": "iogurte",
   "cerv": "cerveja",
   "refrig": "refrigerante",
+  "refri": "refrigerante",          // ✨ 2026-05-25: "Refri" → "Refrigerante"
   "achoc": "achocolatado", "ach": "achocolatado",
   "choc": "chocolate",
-  "qa": "", "qj": "queijo",
+  "qa": "", "qj": "queijo", "qjo": "queijo",   // ✨ 2026-05-25: "Qjo Minas" → "Queijo Minas"
   "ling": "linguiça",
   "mant": "manteiga",
   "filezinho": "filé",
@@ -808,6 +809,11 @@ const productVariants = {
   "manteiga":     ["com sal", "sem sal"],   // decisão Sylvio 2026-05-22: fundir
   "cerveja":      ["alcool"],                // decisão Sylvio 2026-05-24: "Cerveja Álcool" → "Cerveja"
   "vinagre":      ["alcool"],                // decisão Sylvio 2026-05-24: "Vinagre Álcool" → "Vinagre"
+  // ✨ Adicionado 2026-05-25: "Suco Natural" e "Suco Integral" colapsam pra
+  // "Suco" (são descritores de modo, não de sabor). Sabores como "Laranja",
+  // "Uva", "Manga" ficam FORA propositalmente — eles distinguem produtos
+  // diferentes. "Suco de Laranja" continua sendo "Suco Laranja".
+  "suco":         ["natural", "integral"],
   // NÃO colapsamos intencionalmente:
   //   - leite (integral/desnatado/semi são produtos distintos)
   //   - feijao (carioca/preto/fradinho mudam o prato)
@@ -5237,7 +5243,15 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
         existing.merged_count = (existing.merged_count || 1) + 1;
         // Mantém o EAN do primeiro item (informativo)
       } else {
-        groupedMap.set(groupKey, { ...it, merged_count: 1 });
+        // ✨ BUGFIX 2026-05-25: guarda o nome amigável colapsado no campo
+        // friendly_name, pra que o matching com a lista (mais abaixo, via
+        // tokenize) compare nome amigável vs nome amigável (não nome cru
+        // da NF vs nome amigável da lista, que era o bug).
+        groupedMap.set(groupKey, {
+          ...it,
+          friendly_name: friendlyForGrouping || it.name,
+          merged_count: 1,
+        });
       }
     }
     // Substitui items pelo array agrupado (mantém ordem de aparição)
@@ -5246,7 +5260,11 @@ function InvoicePreviewScreen({ invoice, items, listItems, listName, onCancel, o
     // Para cada item da NF, calcula score com cada item da lista
     const candidates = []; // { nfIdx, listIdx, score }
     groupedItems.forEach((it, nfIdx) => {
-      const nfTokens = tokenize(it.name);
+      // ✨ BUGFIX 2026-05-25: usa friendly_name (amigável colapsado) em vez de
+      // it.name (nome cru da NF). Sem isso, "DETERG NEUTRO YPE 500ML" tentava
+      // casar com "Detergente Neutro" da lista — tokens totalmente diferentes,
+      // score baixo, sem match. Resultado: item da lista virava "extra".
+      const nfTokens = tokenize(it.friendly_name || it.name);
       (listItems || []).forEach((li, listIdx) => {
         const listTokens = tokenize(li.name);
         const score = scoreMatch(listTokens, nfTokens);
