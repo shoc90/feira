@@ -311,9 +311,41 @@ const tokenize = s =>
     .filter(t => t.length > 1);
 
 // Score de similaridade entre dois arrays de tokens (0–1)
-// Conta tokens em comum dividido pelo maior array
+// Conta tokens em comum dividido pelo maior array.
+//
+// ✨ BUGFIX 2026-05-25 (Opção C): detecta conflito de descritor sob a mesma
+// base. Se ambos os lados têm a mesma "base" (queijo, suco, leite, etc.) MAS
+// têm descritores DIFERENTES (mussarela vs minas), zera o score.
+//
+// Antes desse fix:
+//   "Queijo Mussarela" vs "Queijo Minas" → 1 token comum / max(2,2) = 0.5
+//   → ≥ threshold de 0.5 → casava ERRADO.
+//
+// A correção é cirúrgica: só atua quando há a mesma base + descritores
+// conflitantes. Em todos os outros casos, comportamento original preservado.
+let _baseSetCache = null;
+const _getBaseSet = () => {
+  if (!_baseSetCache) _baseSetCache = new Set(Object.keys(productBases));
+  return _baseSetCache;
+};
 const scoreMatch = (tokensA, tokensB) => {
   if (!tokensA.length || !tokensB.length) return 0;
+
+  // Detecta conflito de descritor sob a mesma base
+  const baseSet = _getBaseSet();
+  const baseA = tokensA.find(t => baseSet.has(t));
+  const baseB = tokensB.find(t => baseSet.has(t));
+  if (baseA && baseB && baseA === baseB) {
+    // Ambos compartilham uma base — confere se há conflito de descritor
+    const descsA = tokensA.filter(t => !baseSet.has(t));
+    const descsB = tokensB.filter(t => !baseSet.has(t));
+    // Se AMBOS têm pelo menos um descritor E nenhum descritor é comum → conflito
+    if (descsA.length > 0 && descsB.length > 0) {
+      const overlap = descsA.some(d => descsB.includes(d));
+      if (!overlap) return 0;  // mesma base, descritores diferentes → não casa
+    }
+  }
+
   const setB = new Set(tokensB);
   const matches = tokensA.filter(t => setB.has(t)).length;
   return matches / Math.max(tokensA.length, tokensB.length);
