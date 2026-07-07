@@ -1445,9 +1445,8 @@ function AuthScreen({ pendingInviteToken }) {
       });
       if (signErr) throw signErr;
       if (data.user) {
-        // Tenta gravar dados completos no profile (trigger já criou básico).
-        // Se falhar (rede, race), tenta uma vez mais — esses dados são importantes
-        // (CEP e principalmente terms_accepted_at por compliance LGPD).
+        // Dados completos do profile (o trigger handle_new_user já criou o básico).
+        // Inclui CEP e principalmente terms_accepted_at (compliance LGPD).
         const profilePayload = {
           id: data.user.id,
           name: normalizedName,
@@ -1461,16 +1460,19 @@ function AuthScreen({ pendingInviteToken }) {
           terms_accepted_at: new Date().toISOString(),
           terms_version_accepted: "v1.0",
         };
-        let { error: pErr } = await supabase.from("profiles").upsert(profilePayload);
-        if (pErr) {
-          console.warn("[signup] upsert do profile falhou, tentando de novo:", pErr);
-          // Retry uma vez
-          const retry = await supabase.from("profiles").upsert(profilePayload);
-          if (retry.error) {
-            console.error("[signup] upsert do profile falhou no retry:", retry.error);
-            // Não bloqueia o signup — o profile básico já foi criado pelo trigger.
-            // O usuário pode atualizar CEP depois nas Configurações.
-          }
+        // Com confirmação de email ativa, signUp NÃO retorna sessão — o upsert
+        // rodaria sem autenticação e a RLS bloquearia (perdendo CEP e
+        // terms_accepted_at). Por isso guardamos o payload localmente e ele é
+        // gravado no primeiro login autenticado (ver flushPendingProfile).
+        try {
+          localStorage.setItem("listou_pending_profile", JSON.stringify(profilePayload));
+        } catch { /* localStorage indisponível — segue o fluxo */ }
+
+        if (data.session) {
+          // Sessão já disponível (confirmação de email desativada): grava agora.
+          const { error: pErr } = await supabase.from("profiles").upsert(profilePayload);
+          if (pErr) console.warn("[signup] upsert imediato falhou, será gravado no login:", pErr);
+          else { try { localStorage.removeItem("listou_pending_profile"); } catch { /* noop */ } }
         }
       }
       if (data.session) window.location.reload();
@@ -2284,68 +2286,50 @@ function AcceptInviteScreen({ token, currentUserId, onAccepted, onCancel }) {
 
   const loadInvite = async () => {
     setLoading(true); setError(null);
-    const { data: inv } = await supabase
-      .from("list_invites")
-      .select("*")
-      .eq("token", token)
-      .maybeSingle();
+    // Preview seguro via RPC — não expõe a tabela de convites (a validação
+    // de token/expiração acontece no servidor).
+    const { data, error: rpcErr } = await supabase
+      .rpc("get_invite_by_token", { _token: token });
+    const inv = Array.isArray(data) ? data[0] : data;
 
-    if (!inv) {
+    if (rpcErr || !inv || inv.status === "not_found") {
       setError("Convite não encontrado ou já utilizado");
       setLoading(false);
       return;
     }
-    if (inv.accepted_at) {
+    if (inv.status === "accepted") {
       setError("Este convite já foi utilizado");
       setLoading(false);
       return;
     }
-    if (inv.expires_at && new Date(inv.expires_at) < new Date()) {
+    if (inv.status === "expired") {
       setError("Este convite expirou");
       setLoading(false);
       return;
     }
 
-    setInvite(inv);
-
-    const { data: l } = await supabase
-      .from("lists")
-      .select("id, name, icon")
-      .eq("id", inv.list_id)
-      .maybeSingle();
-    setList(l);
-
+    setInvite({ list_id: inv.list_id, role: inv.role });
+    setList({ id: inv.list_id, name: inv.list_name, icon: inv.list_icon });
     setLoading(false);
   };
 
   const handleAccept = async () => {
     setAccepting(true);
-    // Verifica se já é membro
-    const { data: existing } = await supabase
-      .from("list_members")
-      .select("id")
-      .eq("list_id", invite.list_id)
-      .eq("user_id", currentUserId)
-      .maybeSingle();
-
-    if (!existing) {
-      const { error: errInsert } = await supabase
-        .from("list_members")
-        .insert({ list_id: invite.list_id, user_id: currentUserId, role: invite.role, invited_by: invite.invited_by });
-      if (errInsert) {
-        setError("Erro ao aceitar: " + errInsert.message);
-        setAccepting(false);
-        return;
-      }
+    // Aceite validado no servidor (token + expiração + inserção de membro).
+    const { data: listId, error: rpcErr } = await supabase
+      .rpc("accept_invite", { _token: token });
+    if (rpcErr) {
+      const m = rpcErr.message || "";
+      setError(
+        m.includes("expired") ? "Este convite expirou" :
+        m.includes("already_used") ? "Este convite já foi utilizado" :
+        m.includes("not_found") ? "Convite não encontrado ou já utilizado" :
+        "Erro ao aceitar o convite. Tente novamente."
+      );
+      setAccepting(false);
+      return;
     }
-
-    // Marca convite como aceito
-    await supabase
-      .from("list_invites")
-      .update({ accepted_at: new Date().toISOString(), accepted_by: currentUserId })
-      .eq("id", invite.id);
-
-    onAccepted(invite.list_id);
+    onAccepted(listId || invite.list_id);
   };
 
   if (loading) {
@@ -5742,35 +5726,40 @@ export default function App() {
 
   useEffect(() => {
     if (!session?.user) return;
+    flushPendingProfile();
     loadProfile();
     loadLists();
     loadHistory();
     checkPendingEmailInvites();
   }, [session]);
 
+  // Grava o profile pendente do cadastro (CEP, endereço, consentimento LGPD)
+  // no primeiro login autenticado. No signup com confirmação de email a sessão
+  // ainda não existia, então esses dados ficaram guardados em localStorage.
+  const flushPendingProfile = async () => {
+    let pending;
+    try {
+      const raw = localStorage.getItem("listou_pending_profile");
+      if (!raw) return;
+      pending = JSON.parse(raw);
+    } catch { return; }
+    // Só aplica ao dono do payload (evita gravar dados de outra conta).
+    if (!pending || pending.id !== session.user.id) {
+      try { localStorage.removeItem("listou_pending_profile"); } catch { /* noop */ }
+      return;
+    }
+    const { error } = await supabase.from("profiles").upsert(pending);
+    if (error) { console.warn("[profile] flush pendente falhou, tentará no próximo login:", error); return; }
+    try { localStorage.removeItem("listou_pending_profile"); } catch { /* noop */ }
+  };
+
   // Quando usuário cria conta, verifica se tinha convites pendentes pelo email
   const checkPendingEmailInvites = async () => {
     if (!session?.user?.email) return;
-    const { data: invites } = await supabase
-      .from("list_invites")
-      .select("id, list_id, role")
-      .eq("email", session.user.email.toLowerCase())
-      .is("accepted_at", null);
-
-    if (invites && invites.length > 0) {
-      for (const inv of invites) {
-        // Adiciona como membro
-        await supabase.from("list_members").insert({
-          list_id: inv.list_id, user_id: session.user.id, role: inv.role
-        }).select().maybeSingle();
-
-        // Marca convite como aceito
-        await supabase.from("list_invites").update({
-          accepted_at: new Date().toISOString(), accepted_by: session.user.id
-        }).eq("id", inv.id);
-      }
-      loadLists();
-    }
+    // Aceite server-side de todos os convites pendentes pro email do usuário
+    // (validação e inserção de membro acontecem na RPC, com SECURITY DEFINER).
+    const { data: count } = await supabase.rpc("accept_pending_email_invites");
+    if (count && count > 0) loadLists();
   };
 
   const loadProfile = async () => {
