@@ -1857,7 +1857,7 @@ function CategoryPicker({ current, onChange, onClose }) {
 // ═════════════════════════════════════════════════════════════════════
 // SHARE MODAL — gerenciar membros e convidar
 // ═════════════════════════════════════════════════════════════════════
-function ShareModal({ list, currentUserId, onClose }) {
+function ShareModal({ list, currentUserId, onClose, showToast = () => {} }) {
   const [members, setMembers] = useState([]);
   const [invites, setInvites] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1992,29 +1992,44 @@ function ShareModal({ list, currentUserId, onClose }) {
   };
 
   const handleChangeRole = async (userId, newRole) => {
-    await supabase
+    const { error } = await supabase
       .from("list_members")
       .update({ role: newRole })
       .eq("list_id", list.id)
       .eq("user_id", userId);
+    if (error) {
+      console.error("[handleChangeRole] erro:", error);
+      showToast("Não foi possível alterar a permissão.", "error");
+      return;
+    }
     loadMembers();
   };
 
   const handleRemoveMember = async (userId, isMe = false) => {
     const msg = isMe ? "Tem certeza que deseja sair desta lista?" : "Remover este membro da lista?";
     if (!window.confirm(msg)) return;
-    await supabase
+    const { error } = await supabase
       .from("list_members")
       .delete()
       .eq("list_id", list.id)
       .eq("user_id", userId);
+    if (error) {
+      console.error("[handleRemoveMember] erro:", error);
+      showToast(isMe ? "Não foi possível sair da lista." : "Não foi possível remover o membro.", "error");
+      return;
+    }
     if (isMe) onClose();
     else loadMembers();
   };
 
   const handleCancelInvite = async (inviteId) => {
     if (!window.confirm("Cancelar este convite?")) return;
-    await supabase.from("list_invites").delete().eq("id", inviteId);
+    const { error } = await supabase.from("list_invites").delete().eq("id", inviteId);
+    if (error) {
+      console.error("[handleCancelInvite] erro:", error);
+      showToast("Não foi possível cancelar o convite.", "error");
+      return;
+    }
     loadMembers();
   };
 
@@ -3598,7 +3613,7 @@ function ScreenLists({ lists, listCounts, listMembers, onOpen, onAdd, onDelete, 
 // ═════════════════════════════════════════════════════════════════════
 // SCREEN: LIST DETAIL
 // ═════════════════════════════════════════════════════════════════════
-function ScreenListDetail({ list, items, members, currentUserId, onBack, enabledStores, onAddItem, onToggleItem, onDeleteItem, onChangeCategory, onMarkPurchased, onToggleAll, onRefresh, onRegisterPurchase, onUpdateItem, priceHints = {} }) {
+function ScreenListDetail({ list, items, members, currentUserId, onBack, enabledStores, onAddItem, onToggleItem, onDeleteItem, onChangeCategory, onMarkPurchased, onToggleAll, onRefresh, onRegisterPurchase, onUpdateItem, priceHints = {}, showToast = () => {} }) {
   const [showAdd, setShowAdd] = useState(false);
   const [initialAddMode, setInitialAddMode] = useState("manual");  // "manual" | "import"
   const [openItem, setOpenItem] = useState(null);
@@ -3873,7 +3888,7 @@ function ScreenListDetail({ list, items, members, currentUserId, onBack, enabled
           }}
         />
       )}
-      {showShare && <ShareModal list={list} currentUserId={currentUserId} onClose={()=>{setShowShare(false); onRefresh();}} />}
+      {showShare && <ShareModal list={list} currentUserId={currentUserId} showToast={showToast} onClose={()=>{setShowShare(false); onRefresh();}} />}
     </div>
   );
 }
@@ -5007,7 +5022,9 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
 // ═════════════════════════════════════════════════════════════════════
 // PASTE LINK MODAL — colar URL ou chave de acesso
 // ═════════════════════════════════════════════════════════════════════
-function PasteLinkModal({ onClose, onSubmit, loading }) {
+// serverError = erro vindo da consulta à SEFAZ (prop do App).
+// error = erro de validação local (state interno). Os dois usam a mesma caixa.
+function PasteLinkModal({ onClose, onSubmit, loading, error: serverError = null }) {
   const [input, setInput] = useState("");
   const [error, setError] = useState(null);
 
@@ -5074,9 +5091,9 @@ function PasteLinkModal({ onClose, onSubmit, loading }) {
         disabled={loading}
       />
 
-      {error && (
+      {(error || serverError) && (
         <div style={{ background:`${C.danger}15`,border:`1px solid ${C.danger}55`,borderRadius:9,padding:"10px 12px",marginTop:12 }}>
-          <p style={{ color:C.danger,fontSize:13 }}>{error}</p>
+          <p style={{ color:C.danger,fontSize:13 }}>{error || serverError}</p>
         </div>
       )}
 
@@ -5962,17 +5979,11 @@ export default function App() {
     }
     if (Object.keys(cleanUpdates).length === 0) return;
 
-    const { data, error } = await supabase
-      .from("items")
-      .update(cleanUpdates)
-      .eq("id", id)
-      .select()
-      .single();
-    if (error) {
-      console.error("[updateItemFields] erro:", error);
-      return;
-    }
-    if (data) setItems(prev => prev.map(i => i.id===id ? data : i));
+    const result = await safeOp(
+      () => supabase.from("items").update(cleanUpdates).eq("id", id).select().single(),
+      "Não foi possível salvar a alteração do item."
+    );
+    if (result?.data) setItems(prev => prev.map(i => i.id===id ? result.data : i));
   };
 
   const markPurchased = async (item, storeId, price) => {
@@ -6035,7 +6046,11 @@ export default function App() {
     const record = history.find(h => h.id === recordId);
     const invoiceId = record?.invoice_id;
 
-    await supabase.from("purchase_history").delete().eq("id", recordId);
+    const result = await safeOp(
+      () => supabase.from("purchase_history").delete().eq("id", recordId),
+      "Não foi possível apagar o registro do histórico."
+    );
+    if (!result) return;
     setHistory(prev => prev.filter(h => h.id !== recordId));
 
     // Limpa NF órfã se for o caso
@@ -6048,7 +6063,11 @@ export default function App() {
       .filter(h => ids.includes(h.id) && h.invoice_id)
       .map(h => h.invoice_id);
 
-    await supabase.from("purchase_history").delete().in("id", ids);
+    const result = await safeOp(
+      () => supabase.from("purchase_history").delete().in("id", ids),
+      "Não foi possível apagar os registros selecionados."
+    );
+    if (!result) return;
     setHistory(prev => prev.filter(h => !ids.includes(h.id)));
 
     // Limpa NFs órfãs se for o caso
@@ -6058,9 +6077,17 @@ export default function App() {
   // Apaga uma NF inteira (e todos os registros do histórico ligados a ela)
   const deleteInvoiceAndItems = async (invoiceId) => {
     // 1. Apaga registros do histórico ligados a esta NF
-    await supabase.from("purchase_history").delete().eq("invoice_id", invoiceId);
+    const r1 = await safeOp(
+      () => supabase.from("purchase_history").delete().eq("invoice_id", invoiceId),
+      "Não foi possível apagar os itens desta nota."
+    );
+    if (!r1) return;
     // 2. Apaga a NF
-    await supabase.from("imported_invoices").delete().eq("id", invoiceId);
+    const r2 = await safeOp(
+      () => supabase.from("imported_invoices").delete().eq("id", invoiceId),
+      "Os itens foram apagados, mas a nota não pôde ser removida."
+    );
+    if (!r2) return;
     // 3. Atualiza states locais
     setHistory(prev => prev.filter(h => h.invoice_id !== invoiceId));
     setInvoices(prev => prev.filter(i => i.id !== invoiceId));
@@ -6223,19 +6250,23 @@ export default function App() {
       //    Se shouldAddToList: atualiza item existente na lista (matched) ou cria novo já comprado.
       const itemsToInsertHistory = [];
       const itemsToCreateInList = [];
+      const itemsToUpdateInList = [];   // { id, patch } — aplicados DEPOIS do histórico
 
       for (const item of selectedItems) {
+        // Campos que marcam um item da lista como comprado por esta NF
+        const patch = {
+          done: true,
+          bought_at: "store",
+          bought_date: purchasedAt,
+          bought_price: item.total_price,
+          unit_price: item.unit_price,
+          invoice_id: invoiceId,
+          category: item.category,
+        };
+
         // (a) Se vamos adicionar à lista E o item já está na lista, atualiza
         if (shouldAddToList && item.in_list_item_id) {
-          await supabase.from("items").update({
-            done: true,
-            bought_at: "store",
-            bought_date: purchasedAt,
-            bought_price: item.total_price,
-            unit_price: item.unit_price,
-            invoice_id: invoiceId,
-            category: item.category,
-          }).eq("id", item.in_list_item_id);
+          itemsToUpdateInList.push({ id: item.in_list_item_id, patch });
         }
 
         // (b) Se vamos adicionar à lista E o item NÃO foi matcheado pelo preview
@@ -6250,15 +6281,7 @@ export default function App() {
 
           if (existingInList) {
             // Já existe na lista → atualiza em vez de criar duplicata
-            await supabase.from("items").update({
-              done: true,
-              bought_at: "store",
-              bought_date: purchasedAt,
-              bought_price: item.total_price,
-              unit_price: item.unit_price,
-              invoice_id: invoiceId,
-              category: item.category,
-            }).eq("id", existingInList.id);
+            itemsToUpdateInList.push({ id: existingInList.id, patch });
           } else if (!alreadyQueued) {
             // Não existe em lugar nenhum → cria novo
             itemsToCreateInList.push({
@@ -6293,15 +6316,28 @@ export default function App() {
         });
       }
 
-      // Cria os itens novos na lista em batch
-      if (itemsToCreateInList.length > 0) {
-        const { error: itemsErr } = await supabase.from("items").insert(itemsToCreateInList);
-        if (itemsErr) console.warn("Erro ao criar itens na lista:", itemsErr);
-      }
-
+      // A ORDEM ABAIXO É PROPOSITAL — corrigido em 2026-07-23.
+      // O gatilho on_item_purchased grava no histórico quando um item da lista
+      // passa de não-comprado para comprado. Ele TEM proteção contra duplicata,
+      // mas ela consulta o histórico no momento em que dispara. Se o app só
+      // gravasse o histórico depois, o gatilho não acharia nada e inseriria uma
+      // segunda linha. Por isso: histórico primeiro, itens da lista depois.
       if (itemsToInsertHistory.length > 0) {
         const { error: histErr } = await supabase.from("purchase_history").insert(itemsToInsertHistory);
         if (histErr) console.warn("Erro ao salvar histórico:", histErr);
+      }
+
+      // Agora sim marca os itens da lista como comprados
+      for (const u of itemsToUpdateInList) {
+        const { error: updErr } = await supabase.from("items").update(u.patch).eq("id", u.id);
+        if (updErr) console.warn("Erro ao marcar item da lista:", updErr);
+      }
+
+      // Cria os itens novos na lista em batch
+      // (o gatilho não dispara em INSERT, então aqui não há risco de duplicata)
+      if (itemsToCreateInList.length > 0) {
+        const { error: itemsErr } = await supabase.from("items").insert(itemsToCreateInList);
+        if (itemsErr) console.warn("Erro ao criar itens na lista:", itemsErr);
       }
 
       // 3. Recarrega dados
@@ -6323,7 +6359,7 @@ export default function App() {
       }
     } catch (err) {
       console.error("[invoice confirm] erro:", err);
-      alert("Erro ao salvar: " + (err.message || "tente novamente"));
+      showToast("Não foi possível salvar a compra. Tente novamente.", "error");
       setInvoiceSaving(false);
     }
   };
@@ -6500,6 +6536,7 @@ export default function App() {
               items: items
             })}
             priceHints={priceHints}
+            showToast={showToast}
           />
         ) : (
           <>
