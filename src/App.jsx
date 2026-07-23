@@ -1879,24 +1879,18 @@ function ShareModal({ list, currentUserId, onClose }) {
 
   const loadMembers = async () => {
     setLoading(true);
-    // Busca members + dados de profile (name, email)
-    const { data: mems } = await supabase
-      .from("list_members")
-      .select("user_id, role, joined_at")
-      .eq("list_id", list.id);
-
-    if (mems && mems.length > 0) {
-      const userIds = mems.map(m => m.user_id);
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, name, email")
-        .in("id", userIds);
-
-      const enriched = mems.map(m => {
-        const p = profiles?.find(pf => pf.id === m.user_id);
-        return { ...m, name: p?.name || "", email: p?.email || "" };
-      });
-      setMembers(enriched);
+    // Membros + nome/email numa chamada só.
+    // A policy de profiles é self-only (auth.uid() = id), entao o cliente
+    // não consegue ler o perfil dos outros membros direto da tabela.
+    const { data: mems } = await supabase.rpc("get_list_members", { _list_id: list.id });
+    if (mems) {
+      setMembers(mems.map(m => ({
+        user_id: m.m_user_id,
+        role: m.m_role,
+        joined_at: m.m_joined_at,
+        name: m.m_name || "",
+        email: m.m_email || "",
+      })));
     }
 
     // Busca convites pendentes (não aceitos)
@@ -2284,68 +2278,56 @@ function AcceptInviteScreen({ token, currentUserId, onAccepted, onCancel }) {
 
   const loadInvite = async () => {
     setLoading(true); setError(null);
-    const { data: inv } = await supabase
-      .from("list_invites")
-      .select("*")
-      .eq("token", token)
-      .maybeSingle();
 
-    if (!inv) {
-      setError("Convite não encontrado ou já utilizado");
-      setLoading(false);
-      return;
-    }
-    if (inv.accepted_at) {
-      setError("Este convite já foi utilizado");
-      setLoading(false);
-      return;
-    }
-    if (inv.expires_at && new Date(inv.expires_at) < new Date()) {
-      setError("Este convite expirou");
+    // A validação do token acontece DENTRO do banco (get_invite_by_token).
+    // O cliente não lê mais a tabela list_invites diretamente.
+    const { data, error: rpcErr } = await supabase
+      .rpc("get_invite_by_token", { _token: token });
+
+    const row = Array.isArray(data) ? data[0] : data;
+
+    if (rpcErr || !row) {
+      setError("Não foi possível verificar o convite. Tente novamente.");
       setLoading(false);
       return;
     }
 
-    setInvite(inv);
+    if (row.status !== "ok") {
+      setError(
+        row.status === "ja_usado" ? "Este convite já foi utilizado" :
+        row.status === "expirado" ? "Este convite expirou" :
+        "Convite não encontrado ou já utilizado"
+      );
+      setLoading(false);
+      return;
+    }
 
-    const { data: l } = await supabase
-      .from("lists")
-      .select("id, name, icon")
-      .eq("id", inv.list_id)
-      .maybeSingle();
-    setList(l);
-
+    setInvite({ role: row.invite_role });
+    setList({ name: row.list_name, icon: row.list_icon });
     setLoading(false);
   };
 
   const handleAccept = async () => {
     setAccepting(true);
-    // Verifica se já é membro
-    const { data: existing } = await supabase
-      .from("list_members")
-      .select("id")
-      .eq("list_id", invite.list_id)
-      .eq("user_id", currentUserId)
-      .maybeSingle();
 
-    if (!existing) {
-      const { error: errInsert } = await supabase
-        .from("list_members")
-        .insert({ list_id: invite.list_id, user_id: currentUserId, role: invite.role, invited_by: invite.invited_by });
-      if (errInsert) {
-        setError("Erro ao aceitar: " + errInsert.message);
-        setAccepting(false);
-        return;
-      }
+    // Uma chamada só: o banco valida o token, insere o membro e marca o
+    // convite como usado. Não dá pra gravar pela metade.
+    const { data, error: rpcErr } = await supabase
+      .rpc("accept_invite", { _token: token });
+
+    const row = Array.isArray(data) ? data[0] : data;
+
+    if (rpcErr || !row || row.status !== "ok") {
+      setError(
+        row?.status === "ja_usado" ? "Este convite já foi utilizado" :
+        row?.status === "expirado" ? "Este convite expirou" :
+        "Não foi possível aceitar o convite. Tente novamente."
+      );
+      setAccepting(false);
+      return;
     }
 
-    // Marca convite como aceito
-    await supabase
-      .from("list_invites")
-      .update({ accepted_at: new Date().toISOString(), accepted_by: currentUserId })
-      .eq("id", invite.id);
-
-    onAccepted(invite.list_id);
+    onAccepted(row.joined_list_id);
   };
 
   if (loading) {
@@ -5751,26 +5733,14 @@ export default function App() {
   // Quando usuário cria conta, verifica se tinha convites pendentes pelo email
   const checkPendingEmailInvites = async () => {
     if (!session?.user?.email) return;
-    const { data: invites } = await supabase
-      .from("list_invites")
-      .select("id, list_id, role")
-      .eq("email", session.user.email.toLowerCase())
-      .is("accepted_at", null);
-
-    if (invites && invites.length > 0) {
-      for (const inv of invites) {
-        // Adiciona como membro
-        await supabase.from("list_members").insert({
-          list_id: inv.list_id, user_id: session.user.id, role: inv.role
-        }).select().maybeSingle();
-
-        // Marca convite como aceito
-        await supabase.from("list_invites").update({
-          accepted_at: new Date().toISOString(), accepted_by: session.user.id
-        }).eq("id", inv.id);
-      }
-      loadLists();
+    // O banco procura convites pelo email do usuário logado, adiciona
+    // como membro e marca os convites como aceitos.
+    const { data: aceitos, error } = await supabase.rpc("accept_email_invites");
+    if (error) {
+      console.error("[checkPendingEmailInvites] erro:", error);
+      return;
     }
+    if (aceitos > 0) loadLists();
   };
 
   const loadProfile = async () => {
@@ -5812,29 +5782,23 @@ export default function App() {
 
   const loadLists = async () => {
     const { data } = await supabase.from("lists").select("*").order("created_at", { ascending: true });
-    if (data) {
-      setLists(data);
-      // Carrega membros de cada lista
-      const membersMap = {};
-      for (const list of data) {
-        const { data: mems } = await supabase
-          .from("list_members")
-          .select("user_id, role")
-          .eq("list_id", list.id);
-        if (mems && mems.length > 0) {
-          const userIds = mems.map(m => m.user_id);
-          const { data: profiles } = await supabase
-            .from("profiles")
-            .select("id, name, email")
-            .in("id", userIds);
-          membersMap[list.id] = mems.map(m => {
-            const p = profiles?.find(pf => pf.id === m.user_id);
-            return { ...m, name: p?.name || "", email: p?.email || "" };
-          });
-        }
-      }
-      setListMembers(membersMap);
+    if (!data) return;
+    setLists(data);
+
+    // Antes: 2 consultas por lista (membros + perfis). Agora: 1 consulta
+    // para todas as listas, e nome/email vêm preenchidos.
+    const { data: rows } = await supabase.rpc("get_my_lists_members");
+    const membersMap = {};
+    for (const r of rows || []) {
+      if (!membersMap[r.m_list_id]) membersMap[r.m_list_id] = [];
+      membersMap[r.m_list_id].push({
+        user_id: r.m_user_id,
+        role: r.m_role,
+        name: r.m_name || "",
+        email: r.m_email || "",
+      });
     }
+    setListMembers(membersMap);
   };
 
   const loadHistory = async () => {
@@ -5892,20 +5856,14 @@ export default function App() {
     if (!activeList) return;
     await loadItems(activeList.id);
     // Recarrega membros também (caso alguém tenha entrado/saído)
-    const { data: mems } = await supabase
-      .from("list_members")
-      .select("user_id, role")
-      .eq("list_id", activeList.id);
+    const { data: mems } = await supabase.rpc("get_list_members", { _list_id: activeList.id });
     if (mems) {
-      const userIds = mems.map(m => m.user_id);
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, name, email")
-        .in("id", userIds);
-      const enriched = mems.map(m => {
-        const p = profiles?.find(pf => pf.id === m.user_id);
-        return { ...m, name: p?.name || "", email: p?.email || "" };
-      });
+      const enriched = mems.map(m => ({
+        user_id: m.m_user_id,
+        role: m.m_role,
+        name: m.m_name || "",
+        email: m.m_email || "",
+      }));
       setActiveListMembers(enriched);
       setListMembers(prev => ({ ...prev, [activeList.id]: enriched }));
     }
