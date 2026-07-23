@@ -1041,6 +1041,30 @@ function mlSearchUrl(name) {
   return `https://lista.mercadolivre.com.br/${encodeURIComponent(name)}`;
 }
 
+// Valida se uma URL é mesmo de um portal estadual de NF-e.
+//
+// Antes checavamos apenas se a palavra "sefaz" aparecia em QUALQUER lugar da
+// string, o que aceitava coisas como https://site-qualquer.com/?x=sefaz.
+// Essa URL é enviada para /api/invoice-parse, que a busca a partir do
+// servidor — ou seja, um link forjado fazia o nosso servidor acessar o
+// endereço que o atacante quisesse.
+//
+// Agora exigimos que o DOMÍNIO termine em .gov.br, que é o que todos os
+// portais estaduais usam (sefaz.pe, fazenda.mg, sef.sc, fazenda.sp, ...).
+// Isso é uma proteção de primeira linha; a validação definitiva precisa
+// existir também no servidor.
+function looksLikeSefazUrl(raw) {
+  if (!raw || typeof raw !== "string") return false;
+  try {
+    const u = new URL(raw.trim());
+    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+    const host = u.hostname.toLowerCase();
+    return host === "gov.br" || host.endsWith(".gov.br");
+  } catch {
+    return false;  // não é uma URL válida
+  }
+}
+
 // Gera token único para link de convite (16 caracteres alfanuméricos)
 // Validador de email com regex razoável (não pretende ser perfeito,
 // mas pega 99% dos casos errados - melhor que apenas verificar "@")
@@ -2170,6 +2194,7 @@ function ShareModal({ list, currentUserId, onClose, showToast = () => {} }) {
             value={inviteEmail}
             onChange={e=>setInviteEmail(e.target.value)}
             type="email"
+            maxLength={120}
             autoFocus
           />
 
@@ -3251,6 +3276,7 @@ function AddItemModal({ onAdd, onClose, existingItems = [], onIncrementItem, onU
               onChange={(e)=>setImportText(e.target.value)}
               placeholder={"Ex:\n• 2 bananas\n- leite\n1 kg arroz\n☐ ovos\n✓ pão"}
               autoFocus
+              maxLength={20000}
               style={{
                 width:"100%", minHeight:160, padding:"11px 12px",
                 background:"#FAF8F4", border:`1px solid ${C.linenDim}`, borderRadius:11,
@@ -4588,6 +4614,13 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
         await new Promise((resolve, reject) => {
           const script = document.createElement("script");
           script.src = "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js";
+          // Verificação de integridade (SRI): se o arquivo na CDN mudar um
+          // único byte, o navegador se recusa a executar. Sem isso, se a CDN
+          // fosse comprometida, o código dela rodaria nesta página com acesso
+          // à sessão do usuário. O hash abaixo é do html5-qrcode 2.3.8 — se um
+          // dia a versão mudar, o hash TEM que mudar junto.
+          script.integrity = "sha384-c9d8RFSL+u3exBOJ4Yp3HUJXS4znl9f+z66d1y54ig+ea249SpqR+w1wyvXz/lk+";
+          script.crossOrigin = "anonymous";
           script.async = true;
           script.onload = resolve;
           script.onerror = () => reject(new Error("Falha ao carregar biblioteca do scanner"));
@@ -4693,7 +4726,7 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
       }
 
       // Valida se é URL de NF-e
-      const isSefazUrl = /https?:\/\/[^\s]*(\.sefaz\.|\.fazenda\.|nfce|nfe)/i.test(decodedText);
+      const isSefazUrl = looksLikeSefazUrl(decodedText);
 
       if (isSefazUrl) {
         // URL SEFAZ — busca direto
@@ -4747,7 +4780,7 @@ function QRScannerModal({ onClose, onDetected, onFallbackPaste, onClearError, lo
             if (isProcessingRef.current) return;
             isProcessingRef.current = true;
             // re-handle
-            const isSefazUrl = /https?:\/\/[^\s]*(\.sefaz\.|\.fazenda\.|nfce|nfe)/i.test(text);
+            const isSefazUrl = looksLikeSefazUrl(text);
             if (isSefazUrl) {
               onDetected(text);
             } else {
@@ -5059,7 +5092,7 @@ function PasteLinkModal({ onClose, onSubmit, loading, error: serverError = null 
       setError("Cole um link válido (começa com https://)");
       return;
     }
-    if (cleaned.indexOf("sefaz") === -1 && cleaned.indexOf("fazenda") === -1) {
+    if (!looksLikeSefazUrl(cleaned)) {
       setError("Este link não parece ser de uma SEFAZ. Verifique e tente novamente.");
       return;
     }
@@ -5088,6 +5121,7 @@ function PasteLinkModal({ onClose, onSubmit, loading, error: serverError = null 
         value={input}
         onChange={e => { setInput(e.target.value); setError(null); }}
         autoFocus
+        maxLength={2000}
         disabled={loading}
       />
 
@@ -5887,6 +5921,11 @@ export default function App() {
   };
 
   const [listCounts, setListCounts] = useState({});
+  // Recalcula os contadores das listas.
+  // ANTES a dependência era [lists, items, session]: como "items" muda a cada
+  // item marcado, TODA marcação disparava uma leitura da tabela inteira.
+  // Agora recalcula ao entrar/sair de uma lista, que é quando o número
+  // realmente precisa estar atualizado na tela inicial.
   useEffect(() => {
     if (!session?.user || lists.length === 0) return;
     supabase.from("items").select("list_id, done").then(({ data }) => {
@@ -5899,7 +5938,7 @@ export default function App() {
       });
       setListCounts(counts);
     });
-  }, [lists, items, session]);
+  }, [lists, session, activeList]);
 
   const addList = async (list) => {
     const result = await safeOp(
