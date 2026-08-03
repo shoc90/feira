@@ -1465,38 +1465,30 @@ function AuthScreen({ pendingInviteToken }) {
       const { data, error: signErr } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
-        options: { data: { name: normalizedName } }
-      });
-      if (signErr) throw signErr;
-      if (data.user) {
-        // Tenta gravar dados completos no profile (trigger já criou básico).
-        // Se falhar (rede, race), tenta uma vez mais — esses dados são importantes
-        // (CEP e principalmente terms_accepted_at por compliance LGPD).
-        const profilePayload = {
-          id: data.user.id,
+        // Todos os dados do cadastro vão pelos metadados do signUp.
+        // Quem grava no profile é o gatilho handle_new_user, dentro do banco.
+        //
+        // POR QUÊ (corrigido em 2026-07-23): antes o app fazia upsert em
+        // profiles logo após o signUp. Só que, com confirmação por email
+        // ligada, neste instante ainda NÃO existe sessão — e a RLS de
+        // profiles exige auth.uid() = id. O upsert era recusado, o código
+        // registrava um aviso no console e seguia. Resultado: CEP, cidade,
+        // rua, bairro e o aceite dos Termos se perdiam em todo cadastro.
+        // O gatilho é SECURITY DEFINER e não depende de sessão.
+        options: { data: {
           name: normalizedName,
-          email: normalizedEmail,
           cep,
           city: cepInfo?.localidade || null,
           state: cepInfo?.uf || null,
           street: cepInfo?.logradouro || null,
           neighborhood: cepInfo?.bairro || null,
-          // LGPD: registrar momento exato e versão dos termos aceitos
-          terms_accepted_at: new Date().toISOString(),
-          terms_version_accepted: "v1.0",
-        };
-        let { error: pErr } = await supabase.from("profiles").upsert(profilePayload);
-        if (pErr) {
-          console.warn("[signup] upsert do profile falhou, tentando de novo:", pErr);
-          // Retry uma vez
-          const retry = await supabase.from("profiles").upsert(profilePayload);
-          if (retry.error) {
-            console.error("[signup] upsert do profile falhou no retry:", retry.error);
-            // Não bloqueia o signup — o profile básico já foi criado pelo trigger.
-            // O usuário pode atualizar CEP depois nas Configurações.
-          }
-        }
-      }
+          // LGPD: mandamos apenas o SINAL de que aceitou. A hora é carimbada
+          // pelo banco com now(), pra não depender do relógio do navegador.
+          terms_accepted: true,
+          terms_version: "v1.0",
+        } }
+      });
+      if (signErr) throw signErr;
       if (data.session) window.location.reload();
       else setEmailSent(true);
     } catch (e) { setError(translateAuthError(e.message)); }
@@ -5797,7 +5789,24 @@ export default function App() {
   const loadProfile = async () => {
     const { data } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
     if (data) {
-      setProfile(data);
+      // Rede de segurança do aceite LGPD.
+      // Contas criadas com Google não passam pelos metadados do signUp, e as
+      // contas antigas ficaram sem registro. Aqui o usuário JÁ está
+      // autenticado, então a RLS de profiles permite a gravação.
+      if (!data.terms_accepted_at) {
+        const { data: atualizado } = await supabase
+          .from("profiles")
+          .update({
+            terms_accepted_at: new Date().toISOString(),
+            terms_version_accepted: "v1.0",
+          })
+          .eq("id", session.user.id)
+          .select()
+          .single();
+        setProfile(atualizado || data);
+      } else {
+        setProfile(data);
+      }
     } else {
       // Profile não existe ainda — provavelmente é primeiro login via OAuth (Google)
       // Cria automaticamente com dados do auth (nome e email)
