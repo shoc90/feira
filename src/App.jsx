@@ -2976,7 +2976,17 @@ function ItemRow({ item, onToggle, onOpen, onCategoryChange, onDelete, canEdit, 
         {canEdit && (
           <button
             onClick={(e)=>{ e.stopPropagation(); onDelete(); }}
-            style={{ background:"none",border:"none",color:C.stoneSoft,fontSize:14,cursor:"pointer",padding:"0 2px" }}
+            title="Excluir item"
+            aria-label={`Excluir ${item.name}`}
+            style={{
+              background:"none", border:"none", color:C.stoneSoft,
+              fontSize:15, cursor:"pointer",
+              // 40x40: antes era 15x19, pequeno demais pra usar com uma mão
+              // no mercado — e a exclusão era irreversível se errasse o toque.
+              width:40, height:40, flexShrink:0, marginLeft:2,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              borderRadius:9
+            }}
           >✕</button>
         )}
       </div>
@@ -5655,10 +5665,16 @@ export default function App() {
   // { message, type: "success" | "error" | "info" }
   const [toast, setToast] = useState(null);
 
-  // Mostra um toast por 3 segundos
-  const showToast = (message, type = "info") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
+  // Mostra um toast. Aceita uma ação opcional (botão dentro do toast),
+  // usada pelo "Desfazer" da exclusao de item.
+  //   showToast("texto", "info", { duration: 6000, action: { label, onClick } })
+  const toastTimerRef = useRef(null);
+  const showToast = (message, type = "info", options = {}) => {
+    // Limpa o timer anterior: sem isso, um toast novo era apagado cedo
+    // demais pelo cronômetro do toast que veio antes.
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ message, type, action: options.action || null });
+    toastTimerRef.current = setTimeout(() => setToast(null), options.duration || 3500);
   };
 
   // Bloqueia zoom no mobile (pinch-to-zoom, double-tap-to-zoom)
@@ -6001,13 +6017,40 @@ export default function App() {
   };
 
   const deleteItem = async (id) => {
+    // Guarda a linha inteira ANTES de apagar, pra conseguir restaurar.
+    const removido = items.find(i => i.id === id);
+
     const result = await safeOp(
       () => supabase.from("items").delete().eq("id", id),
       "Não foi possível excluir o item."
     );
-    if (result) {
-      setItems(prev => prev.filter(i => i.id !== id));
-    }
+    if (!result) return;
+
+    setItems(prev => prev.filter(i => i.id !== id));
+
+    if (!removido) return;
+
+    // Oferece desfazer por 6 segundos.
+    // Optamos por "desfazer" em vez de um pop-up de confirmação: no mercado,
+    // confirmação vira reflexo e a pessoa toca em OK sem ler. O desfazer não
+    // atrapalha quem acertou o toque e salva quem errou.
+    //
+    // A restauração reinsere a linha com o MESMO id e o mesmo created_at,
+    // então o item volta exatamente para onde estava na ordenação.
+    showToast(`"${removido.name}" removido`, "info", {
+      duration: 6000,
+      action: {
+        label: "Desfazer",
+        onClick: async () => {
+          setToast(null);
+          const volta = await safeOp(
+            () => supabase.from("items").insert(removido).select().single(),
+            "Não foi possível restaurar o item."
+          );
+          if (volta?.data) setItems(prev => [...prev, volta.data]);
+        },
+      },
+    });
   };
 
   const changeCategory = async (id, category) => {
@@ -6558,6 +6601,22 @@ export default function App() {
             {toast.type === "error" ? "⚠️" : toast.type === "success" ? "✓" : "ℹ️"}
           </span>
           <span style={{ lineHeight:1.4 }}>{toast.message}</span>
+          {toast.action && (
+            <button
+              onClick={toast.action.onClick}
+              style={{
+                marginLeft:4, flexShrink:0,
+                background:"transparent",
+                border:`1px solid ${toast.type === "success" ? C.graphite : C.sand}66`,
+                borderRadius:14, padding:"6px 12px",
+                color: toast.type === "success" ? C.graphite : C.sand,
+                fontSize:12, fontWeight:600, cursor:"pointer",
+                fontFamily:"'DM Sans',sans-serif"
+              }}
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
       )}
 

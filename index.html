@@ -1,10 +1,47 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
+
+    <!-- Viewport igual ao que o App.jsx aplica ao montar.
+         Deixar aqui evita o instante inicial em que o zoom ainda está liberado. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+
+    <title>Listou · Lista de compras inteligente</title>
+    <meta name="description" content="Monte listas de compras, divida com a família e importe a nota fiscal do mercado para acompanhar seus gastos. Listou. Economizou." />
+
+    <!-- Cor da barra de status quando instalado. Areia (#F5F3EF), o fundo do app. -->
+    <meta name="theme-color" content="#F5F3EF" />
+
+    <!-- Ícones -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React</title>
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- iOS: abre em tela cheia quando adicionado à Tela de Início -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Listou" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- Preview do link no WhatsApp, Telegram, iMessage.
+         ATENÇÃO: as URLs abaixo precisam ser absolutas. Se um dia o endereço
+         mudar de feira-wheat.vercel.app para o domínio próprio, troque aqui. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Listou" />
+    <meta property="og:title" content="Listou · Lista de compras inteligente" />
+    <meta property="og:description" content="Monte listas, divida com a família e importe a nota do mercado para ver para onde vai o dinheiro." />
+    <meta property="og:url" content="https://feira-wheat.vercel.app/" />
+    <meta property="og:image" content="https://feira-wheat.vercel.app/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- Fontes da marca. O preconnect adianta a conexão e reduz o "pisca"
+         de fonte na primeira abertura. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   </head>
   <body>
     <div id="root"></div>
